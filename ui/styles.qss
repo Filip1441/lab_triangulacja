@@ -1,0 +1,115 @@
+/* Modern Dark Theme for Triangulation Rangefinder App */
+
+QWidget {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 14px;
+}
+
+QMainWindow {
+    background-color: #121212;
+}
+
+QGroupBox {
+    border: 1px solid #333333;
+    border-radius: 6px;
+    margin-top: 1em;
+    padding-top: 10px;
+    background-color: #252526;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 3px;
+    color: #4daafc;
+    font-weight: bold;
+}
+
+QPushButton {
+    background-color: #007acc;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #0098ff;
+}
+
+QPushButton:pressed {
+    background-color: #005f9e;
+}
+
+QPushButton:checked {
+    background-color: #555555;
+    color: #ffffff;
+    border: 1px solid #777777;
+}
+
+QPushButton:disabled {
+    background-color: #555555;
+    color: #aaaaaa;
+}
+
+QSlider::groove:horizontal {
+    border: 1px solid #999999;
+    height: 6px;
+    background: #333333;
+    margin: 2px 0;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: #4daafc;
+    border: 1px solid #4daafc;
+    width: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #88c8ff;
+}
+
+QLabel {
+    color: #dddddd;
+}
+
+QComboBox {
+    background-color: #333333;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    padding: 4px;
+    color: white;
+}
+
+QComboBox::drop-down {
+    border-left: 1px solid #555555;
+}
+
+QLineEdit, QSpinBox, QDoubleSpinBox {
+    background-color: #2d2d30;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    padding: 4px;
+    color: white;
+}
+
+QTableWidget {
+    background-color: #1e1e1e;
+    alternate-background-color: #252526;
+    gridline-color: #333333;
+    color: #ffffff;
+    selection-background-color: #007acc;
+}
+
+QHeaderView::section {
+    background-color: #2d2d30;
+    color: white;
+    padding: 4px;
+    border: 1px solid #333333;
+}

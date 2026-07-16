@@ -1,0 +1,9 @@
+PySide6>=6.5.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyqtgraph>=0.13.3
+
+# Hardware dependencies (for Raspberry Pi, will fail gracefully on PC)
+# pigpio
+# adafruit-circuitpython-ads1x15
+scipy>=1.10.0
