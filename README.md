@@ -1,4 +1,4 @@
-/># Triangulate App
+# Triangulate App
 
 
 A cross-platform PySide6 desktop application designed for triangulation rangefinding laboratory classes. Students learn image processing, sensor calibration, geometric calculations, and closed-loop PID control through simulated and physical hardware.
