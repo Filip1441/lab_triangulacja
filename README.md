@@ -1,5 +1,6 @@
 # Triangulate App
 
+
 A cross-platform PySide6 desktop application designed for triangulation rangefinding laboratory classes. Students learn image processing, sensor calibration, geometric calculations, and closed-loop PID control through simulated and physical hardware.
 
 ---
@@ -111,3 +112,9 @@ To calculate the target distance ($Z$) on paper:
 └── utils/
     └── data_logger.py    # CSV exporter utility
 ```
+
+
+
+
+<img width="1512" height="982" alt="image" src="https://github.com/user-attachments/assets/14a57de4-77ba-41af-811c-5b607a9805a7" />
+
