@@ -12,10 +12,10 @@ from PySide6.QtWidgets import (
     QPushButton, QStackedWidget, QLabel, QGroupBox, 
     QTableWidget, QTableWidgetItem, QHeaderView,
     QDoubleSpinBox, QSpinBox, QStatusBar, QCheckBox, QTabWidget,
-    QMessageBox, QTextEdit, QComboBox
+    QMessageBox, QTextEdit, QComboBox, QFileDialog
 )
-from PySide6.QtGui import QShortcut, QKeySequence, QFont
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QShortcut, QKeySequence, QFont, QAction
+from PySide6.QtCore import Qt, Slot, QTimer
 
 import pyqtgraph as pg
 
@@ -48,13 +48,20 @@ class MainWindow(QMainWindow):
         self.pid_worker = PIDControllerWorker(self.hardware)
         self.data_logger = DataLogger()
         self.script_runner = None
+        self._autorun_pending = False
         self.settings_dialog = None
         
         # Internal State
+        self.camera_fov = config.DEFAULT_FOV_DEG
         self.current_raw_frame = None
         self.current_processed_frame = None
         self.current_spot_x = None
         self.current_spot_y = None
+        
+        self.autorun_timer = QTimer(self)
+        self.autorun_timer.setSingleShot(True)
+        self.autorun_timer.setInterval(1000)  # 1s debounce
+        self.autorun_timer.timeout.connect(self._autorun_trigger)
         
         # Fitted curve state
         self.active_fit_type = None  # "linear" or "exp"
@@ -68,8 +75,9 @@ class MainWindow(QMainWindow):
         
         # Hidden shortcut for Settings (cross-platform Preferences standard: Cmd+, on mac, Ctrl+, on Win/Linux)
         self.shortcut_settings = QShortcut(QKeySequence(QKeySequence.Preferences), self)
+        self.shortcut_settings.setContext(Qt.ApplicationShortcut)
         self.shortcut_settings.activated.connect(self.show_settings_dialog)
-        
+
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -179,8 +187,9 @@ class MainWindow(QMainWindow):
             "#   get_servo_angle() -> float (returns current servo angle)\n"
             "#   set_detected_spot(x: float, y: float, intensity: float) -> reports spot back to system\n"
             "#   send_location(x: float, y: float) -> updates the Spot Location details panel\n"
-            "#   draw_cross_on_location(img, x, y) -> returns a copy of the image with a cross drawn at (x, y)\n"
-            "#   find_spot_center(img) -> returns (x, y) centroid of brightest spot in image\n\n"
+            "#   draw_cross_on_location(img, x, y, size=15, thickness=None) -> returns a copy of the image with a cross drawn at (x, y)\n"
+            "#   find_spot_center(img) -> returns (x, y) centroid of brightest spot in image\n"
+            "#   crop_frame(img, x, y, w, h) -> returns cropped image safely from out-of-bounds\n\n"
             "import cv2\n"
             "import numpy as np\n"
             "import time\n\n"
@@ -230,7 +239,8 @@ class MainWindow(QMainWindow):
             "                set_detected_spot(x, y, 255.0)\n"
             "                \n"
             "                # Draw tracking crosshair\n"
-            "                frame = draw_cross_on_location(frame, x, y)\n"
+            "                frame = draw_cross_on_location(frame, x, y, size=100)\n"
+            "                binary = draw_cross_on_location(binary, x, y, size=100)\n"
             "                \n"
             "        # Display stacked original and binary output (forms 16x18 display layout)\n"
             "        send_to_screen(frame, binary)\n"
@@ -240,11 +250,16 @@ class MainWindow(QMainWindow):
         
         # Syntax highlighter
         self.highlighter = PythonSyntaxHighlighter(self.txt_code.document())
+        self.txt_code.textChanged.connect(self.on_code_changed)
         
         code_layout.addWidget(self.txt_code, 1)
         
         # Buttons
         btn_layout = QHBoxLayout()
+        self.chk_autorun = QCheckBox("Auto-run")
+        self.chk_autorun.setChecked(True)
+        btn_layout.addWidget(self.chk_autorun)
+        
         self.btn_run_script = QPushButton("Run Script")
         self.btn_stop_script = QPushButton("Stop Script")
         self.btn_stop_script.setEnabled(False)
@@ -363,9 +378,18 @@ class MainWindow(QMainWindow):
         info_group = QGroupBox("Analytical Calculations (Dashboard)")
         info_layout = QVBoxLayout(info_group)
         
-        desc = QLabel("Calculate the distance on paper using trigonometric formulas based on the live system variables below:")
+        desc = QLabel(
+            "Calculate the distance on paper using perspective camera geometry:\n\n"
+            "1. Calculate spot deviation angle θ:\n"
+            "   tan(θ) = ((X_px - 320) / 320) * tan(FOV / 2)\n"
+            "2. Calculate oblique spot distance R via Law of Sines:\n"
+            "   R = B * sin(α) / cos(α - θ)\n"
+            "3. Calculate target distance Z:\n"
+            "   Z = R * cos(θ)\n\n"
+            "System variables:"
+        )
         desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 14px; margin-bottom: 20px;")
+        desc.setStyleSheet("font-size: 13px; color: #ccc; margin-bottom: 15px;")
         info_layout.addWidget(desc)
         
         font_large = QFont("Arial", 18, QFont.Bold)
@@ -385,10 +409,10 @@ class MainWindow(QMainWindow):
         self.lbl_s2_spot.setStyleSheet("color: #ffa500;")
         info_layout.addWidget(self.lbl_s2_spot)
         
-        px_per_mm = config.PIXELS_PER_MM
-        lbl_params = QLabel(f"Camera Parameters: {px_per_mm:.1f} pixels / mm")
-        lbl_params.setStyleSheet("font-size: 14px; margin-top: 20px; color: #888;")
-        info_layout.addWidget(lbl_params)
+        self.lbl_s2_fov = QLabel(f"Camera FOV (deg): {self.camera_fov:.1f}°")
+        self.lbl_s2_fov.setFont(font_large)
+        self.lbl_s2_fov.setStyleSheet("color: #ffa500;")
+        info_layout.addWidget(self.lbl_s2_fov)
         
         layout.addWidget(info_group)
         
@@ -505,7 +529,7 @@ class MainWindow(QMainWindow):
         locked = (index == 1)
         self.hw_group.setEnabled(not locked)
         if index == 0:
-            self.live_point_item.setData([], [])
+            self.live_point_item.clear()
 
     def switch_stage(self, index: int):
         self.stack.setCurrentIndex(index)
@@ -560,6 +584,37 @@ class MainWindow(QMainWindow):
     def update_exposure(self, val: int):
         self.camera_worker.set_exposure(val)
 
+    def update_camera_fov(self, val: float):
+        self.camera_fov = val
+        self.camera_worker.set_camera_fov(val)
+        if hasattr(self, 'lbl_s2_fov'):
+            self.lbl_s2_fov.setText(f"Camera FOV (deg): {val:.1f}°")
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.spin_cam_fov.blockSignals(True)
+            self.settings_dialog.spin_cam_fov.setValue(val)
+            self.settings_dialog.spin_cam_fov.blockSignals(False)
+
+    def update_sweep_enabled(self, enabled: bool):
+        self.pid_worker.set_sweep_enabled(enabled)
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.chk_sweep_enabled.blockSignals(True)
+            self.settings_dialog.chk_sweep_enabled.setChecked(enabled)
+            self.settings_dialog.chk_sweep_enabled.blockSignals(False)
+
+    def update_sweep_timeout(self, val: float):
+        self.pid_worker.set_sweep_timeout(val)
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.spin_sweep_delay.blockSignals(True)
+            self.settings_dialog.spin_sweep_delay.setValue(val)
+            self.settings_dialog.spin_sweep_delay.blockSignals(False)
+
+    def update_sweep_duration(self, val: float):
+        self.pid_worker.set_sweep_duration(val)
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.spin_sweep_duration.blockSignals(True)
+            self.settings_dialog.spin_sweep_duration.setValue(val)
+            self.settings_dialog.spin_sweep_duration.blockSignals(False)
+
     @Slot(np.ndarray)
     def process_and_display_frame(self, frame: np.ndarray):
         self.current_raw_frame = frame
@@ -603,6 +658,21 @@ class MainWindow(QMainWindow):
         return 0.0
 
     # --- Stage 0 Python Scripting Logic ---
+    def on_code_changed(self):
+        if hasattr(self, 'chk_autorun') and self.chk_autorun.isChecked():
+            # Restart debounce timer on every keystroke
+            self.autorun_timer.start()
+
+    def _autorun_trigger(self):
+        """Called after debounce timer fires. Stops old script and schedules re-run."""
+        if self.script_runner and self.script_runner.isRunning():
+            # Mark that we want to re-run once the old script finishes
+            self._autorun_pending = True
+            self.script_runner.stop()
+        else:
+            # Nothing running — start immediately
+            self.run_custom_script()
+
     def run_custom_script(self):
         self.txt_console.clear()
         self.txt_console.append("[INFO] Starting Python Sandbox Script...")
@@ -628,6 +698,16 @@ class MainWindow(QMainWindow):
             self.script_runner.stop()
             
     def on_script_finished(self):
+        # Ignore finished signals from old threads if a new one is already running
+        if self.script_runner and self.script_runner.isRunning():
+            return
+        
+        # If auto-run requested a restart, do it now that the old script is done
+        if self._autorun_pending:
+            self._autorun_pending = False
+            self.run_custom_script()
+            return
+            
         self.btn_run_script.setEnabled(True)
         self.btn_stop_script.setEnabled(False)
         self.txt_console.append("\n[INFO] Script runner finished.")
@@ -774,17 +854,23 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Verification Failed", "No spot detected on screen to verify distance calculations. Start Python script first.")
             return
             
-        px_per_mm = config.PIXELS_PER_MM
-        center_x = config.DEFAULT_IMAGE_WIDTH_PX / 2.0
-        x_hit_mm = (self.current_spot_x - center_x) / px_per_mm
+        center_x = 320.0
+        tan_half_fov = math.tan(math.radians(self.camera_fov / 2.0))
+        tan_theta = ((self.current_spot_x - center_x) / center_x) * tan_half_fov
         
         angle = self.hardware.get_servo_angle()
         rad = math.radians(angle)
         
-        if abs(math.tan(rad)) > 0.001:
-            theoretical = (self.schematic.base_distance - x_hit_mm) * math.tan(rad)
+        denom = (1.0 / math.tan(rad)) + tan_theta
+        
+        if abs(denom) > 0.001:
+            theoretical = self.schematic.base_distance / denom
             student_ans = self.spin_s2_ans.value()
             
+            if theoretical <= 0:
+                QMessageBox.warning(self, "Invalid Geometry", "Laser projection angle points away from camera sensor.")
+                return
+                
             # Allow 5% error margin
             error_margin = abs(theoretical - student_ans) / theoretical
             if error_margin <= 0.05:
@@ -827,14 +913,18 @@ class MainWindow(QMainWindow):
         
         self.schematic.update_state(self.schematic.base_distance, new_angle, self.schematic.object_distance)
         
-        # Calculate system estimated distance
-        px_per_mm = config.DEFAULT_IMAGE_WIDTH_PX / config.DEFAULT_SENSOR_WIDTH_MM
-        center_x = config.DEFAULT_IMAGE_WIDTH_PX / 2.0
-        x_hit_mm = (target - center_x) / px_per_mm
-        rad = math.radians(new_angle)
+        # Calculate system estimated distance using perspective geometry:
+        # tan(theta) = ((target_px - 320) / 320) * tan(FOV / 2)
+        # Z = B / (1/tan(alpha) + tan(theta))
+        center_x = 320.0
+        tan_half_fov = math.tan(math.radians(self.camera_fov / 2.0))
+        tan_theta = ((target - center_x) / center_x) * tan_half_fov
         
-        if abs(math.tan(rad)) > 0.001:
-            estimated_dist = (self.schematic.base_distance - x_hit_mm) * math.tan(rad)
+        rad = math.radians(new_angle)
+        denom = (1.0 / math.tan(rad)) + tan_theta
+        
+        if abs(denom) > 0.001:
+            estimated_dist = self.schematic.base_distance / denom
         else:
             estimated_dist = 9999.0
             

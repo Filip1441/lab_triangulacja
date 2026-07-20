@@ -113,3 +113,29 @@ QHeaderView::section {
     padding: 4px;
     border: 1px solid #333333;
 }
+
+/* Checkbox Styles for higher visibility */
+QCheckBox {
+    spacing: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+QCheckBox::indicator {
+    width: 24px;
+    height: 24px;
+    background-color: #2d2d30;
+    border: 2px solid #777777;
+    border-radius: 4px;
+}
+
+QCheckBox::indicator:hover {
+    border: 2px solid #4daafc;
+    background-color: #3d3d40;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #4daafc;
+    border: 2px solid #007acc;
+}

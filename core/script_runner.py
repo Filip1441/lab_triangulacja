@@ -23,6 +23,29 @@ class ScriptRunner(QThread):
     def run(self):
         self.running = True
         
+        import ast
+        try:
+            tree = ast.parse(self.code_text)
+            has_sleep = False
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == 'time' and node.func.attr == 'sleep':
+                        if node.args and isinstance(node.args[0], ast.Constant):
+                            val = node.args[0].value
+                            if isinstance(val, (int, float)) and val >= 0.01:
+                                has_sleep = True
+                                break
+            if not has_sleep:
+                self.log_signal.emit("\n[ERROR] Missing sleep! Script must include a time.sleep(x) call where x >= 0.01\n")
+                self.running = False
+                self.finished_signal.emit()
+                return
+        except SyntaxError as e:
+            self.log_signal.emit(f"\n[ERROR] Syntax error (SyntaxError): {e}\n")
+            self.running = False
+            self.finished_signal.emit()
+            return
+        
         # Line-by-line trace function to forcefully terminate thread loops when self.running is False
         def trace_func(frame, event, arg):
             if not self.running:
@@ -78,15 +101,17 @@ class ScriptRunner(QThread):
         def send_location(x, y):
             self.spot_signal.emit(float(x), float(y), 255.0)
             
-        def draw_cross_on_location(img, x, y):
+        def draw_cross_on_location(img, x, y, size=15, thickness=None):
             if img is None:
                 return None
             out = img.copy()
             ix, iy = int(x), int(y)
+            if thickness is None:
+                thickness = max(2, int(size / 10))
             # Support color or grayscale drawing
             color = (0, 0, 255) if len(out.shape) == 3 else 255
-            cv2.line(out, (ix, iy - 15), (ix, iy + 15), color, 2)
-            cv2.line(out, (ix - 15, iy), (ix + 15, iy), color, 2)
+            cv2.line(out, (ix, iy - size), (ix, iy + size), color, thickness)
+            cv2.line(out, (ix - size, iy), (ix + size, iy), color, thickness)
             return out
             
         def find_spot_center(img):
@@ -100,6 +125,19 @@ class ScriptRunner(QThread):
             if max_val > 10.0:
                 return float(max_loc[0]), float(max_loc[1])
             return None
+            
+        def crop_frame(img, x, y, w, h):
+            if img is None:
+                return None
+            x, y, w, h = int(x), int(y), int(w), int(h)
+            height, width = img.shape[:2]
+            x = max(0, min(x, width))
+            y = max(0, min(y, height))
+            w = max(0, min(w, width - x))
+            h = max(0, min(h, height - y))
+            if w <= 0 or h <= 0:
+                return img.copy()
+            return img[y:y+h, x:x+w].copy()
             
         class StdoutRedirector:
             def __init__(self, signal):
@@ -116,9 +154,9 @@ class ScriptRunner(QThread):
         # Custom time class that wraps the standard time module
         import time as standard_time
         class CustomTime:
-            def __getattr__(self, name):
+            def __getattr__(c_self, name):
                 return getattr(standard_time, name)
-            def sleep(self, seconds):
+            def sleep(c_self, seconds):
                 t_start = standard_time.time()
                 while standard_time.time() - t_start < seconds:
                     if not self.running:
@@ -144,6 +182,7 @@ class ScriptRunner(QThread):
             'send_location': send_location,
             'draw_cross_on_location': draw_cross_on_location,
             'find_spot_center': find_spot_center,
+            'crop_frame': crop_frame,
             'cv2': cv2,
             'np': np,
             'time': custom_time,

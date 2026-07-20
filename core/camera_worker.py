@@ -30,6 +30,7 @@ class CameraWorker(QThread):
         self._target_distance = 200.0  # Simulated target distance in mm
         self._base_distance = config.DEFAULT_BASE_DISTANCE_MM
         self.paused = False
+        self.camera_fov = config.DEFAULT_FOV_DEG
 
     def set_mode(self, mode: str, path: str = None):
         """Request camera input mode change safely."""
@@ -42,6 +43,9 @@ class CameraWorker(QThread):
 
     def set_base_distance(self, base_distance: float):
         self._base_distance = base_distance
+
+    def set_camera_fov(self, fov: float):
+        self.camera_fov = fov
 
     def set_paused(self, paused: bool):
         self.paused = paused
@@ -58,10 +62,12 @@ class CameraWorker(QThread):
             static_frame = cv2.imread(self.static_image_path)
             if static_frame is None:
                 # fallback blank
-                static_frame = np.zeros((config.DEFAULT_IMAGE_HEIGHT_PX, config.DEFAULT_IMAGE_WIDTH_PX, 3), dtype=np.uint8)
+                pass
 
         while self.running:
-            # Check for mode change
+            start_time = time.time()
+            
+            # Safe Mode Switching
             if self.requested_mode != self.input_mode:
                 if self.capture is not None:
                     self.capture.release()
@@ -72,19 +78,13 @@ class CameraWorker(QThread):
                 
                 if self.input_mode == "Live":
                     self.capture = cv2.VideoCapture(config.CAMERA_INDEX)
-                    self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.DEFAULT_IMAGE_WIDTH_PX)
-                    self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.DEFAULT_IMAGE_HEIGHT_PX)
                 elif self.input_mode == "Static" and self.static_image_path:
                     static_frame = cv2.imread(self.static_image_path)
-                    if static_frame is None:
-                        static_frame = np.zeros((config.DEFAULT_IMAGE_HEIGHT_PX, config.DEFAULT_IMAGE_WIDTH_PX, 3), dtype=np.uint8)
-
-            start_time = time.time()
-            frame = None
 
             if not self.paused:
+                frame = None
                 if self.input_mode == "Live":
-                    if self.capture and self.capture.isOpened():
+                    if self.capture is not None and self.capture.isOpened():
                         ret, frame = self.capture.read()
                         if not ret:
                             frame = None
@@ -107,7 +107,7 @@ class CameraWorker(QThread):
             self.capture = None
 
     def _generate_simulated_frame(self) -> np.ndarray:
-        """Generates a synthetic dark frame with a laser spot."""
+        """Generates a synthetic dark frame with a laser spot using a perspective camera model."""
         height = config.DEFAULT_IMAGE_HEIGHT_PX
         width = config.DEFAULT_IMAGE_WIDTH_PX
         
@@ -120,17 +120,8 @@ class CameraWorker(QThread):
         # Calculate simulated spot position
         # Object moves along Z axis. Laser is at X = base_distance. 
         # Camera is at X = 0.
-        # tan(90 - alpha) = (X_hit - base_distance) / Z
-        
-        # We need the X coordinate of the hit point.
-        # X_hit = base_distance - Z * tan(90 - alpha)
-        # However, angle_deg here is given relative to the baseline.
-        # Let's assume angle_deg is relative to the baseline between camera and laser.
-        # So alpha is the angle. tan(alpha) = Z / (base_distance - X_hit)
-        # X_hit = base_distance - Z / tan(alpha)
-        
         rad = math.radians(angle_deg)
-        if math.sin(rad) != 0:
+        if math.sin(rad) != 0 and math.cos(rad) != 0:
             x_hit_mm = self._base_distance - (self._target_distance / math.tan(rad))
         else:
             x_hit_mm = self._base_distance
@@ -138,10 +129,21 @@ class CameraWorker(QThread):
         center_x = width // 2
         center_y = height // 2
         
-        # Convert physical X hit (mm) to camera sensor pixels
-        pixels_per_mm = config.PIXELS_PER_MM
+        # Perspective Projection mapping using camera FOV:
+        # tan(theta) = X_hit / Z
+        # x_pixel = center_x + center_x * (tan(theta) / tan(FOV / 2))
+        fov_rad = math.radians(self.camera_fov)
         
-        spot_x = int(center_x + x_hit_mm * pixels_per_mm)
+        if self._target_distance > 0.001:
+            tan_theta = x_hit_mm / self._target_distance
+            # Limit maximum deflection to avoid math/float overflow issues at extreme angles
+            max_tan_deflection = math.tan(fov_rad / 2.0) * 1.5
+            tan_theta = max(-max_tan_deflection, min(max_tan_deflection, tan_theta))
+            
+            spot_x = int(center_x + center_x * (tan_theta / math.tan(fov_rad / 2.0)))
+        else:
+            spot_x = center_x
+            
         spot_y = center_y # Keep Y constant
         
         # Add some jitter

@@ -2,6 +2,7 @@ import time
 from collections import deque
 import numpy as np
 from PySide6.QtCore import QThread, Signal
+import config
 
 class PIDControllerWorker(QThread):
     """
@@ -36,6 +37,11 @@ class PIDControllerWorker(QThread):
         self.sweep_data = []
         self.sweep_angle = 0.0
         
+        # Sweep configuration
+        self.sweep_enabled = config.DEFAULT_SWEEP_ENABLED
+        self.sweep_timeout_sec = config.DEFAULT_SWEEP_TIMEOUT_SEC
+        self.sweep_duration_sec = config.DEFAULT_SWEEP_DURATION_SEC
+        
     def set_gains(self, kp: float, ki: float, kd: float):
         self.kp = kp
         self.ki = ki
@@ -43,6 +49,20 @@ class PIDControllerWorker(QThread):
         
     def set_target(self, target_x: float):
         self.target_x = target_x
+
+    def set_sweep_enabled(self, enabled: bool):
+        self.sweep_enabled = enabled
+        if not enabled:
+            self.sweep_mode = False
+            self._sweep_initialized = False
+            self.spot_lost_frames = 0
+            self.error_history.clear()
+
+    def set_sweep_timeout(self, timeout_sec: float):
+        self.sweep_timeout_sec = max(0.5, float(timeout_sec))
+
+    def set_sweep_duration(self, duration_sec: float):
+        self.sweep_duration_sec = max(0.5, float(duration_sec))
         
     def update_current_x(self, x: float, intensity: float = 0.0):
         """Called by the image processor signal slot to update the actual position and intensity."""
@@ -59,6 +79,9 @@ class PIDControllerWorker(QThread):
         self.prev_error = 0.0
         self.last_time = time.time()
         self._sweep_initialized = False
+        self.sweep_mode = False
+        self.spot_lost_frames = 0
+        self.error_history.clear()
         
         while self.running:
             current_time = time.time()
@@ -77,11 +100,12 @@ class PIDControllerWorker(QThread):
             self.error_history.append(error)
             
             # Check for Sweep triggers
-            if not self.sweep_mode:
+            if self.sweep_enabled and not self.sweep_mode:
+                timeout_frames = int(self.sweep_timeout_sec / 0.02)
                 trigger_sweep = False
-                if self.spot_lost_frames > 500:  # 10 seconds lost
+                if self.spot_lost_frames > timeout_frames:
                     trigger_sweep = True
-                elif len(self.error_history) == 500 and np.std(self.error_history) > 100.0: # Huge jumping
+                elif len(self.error_history) >= timeout_frames and np.std(self.error_history) > 100.0:
                     trigger_sweep = True
                     
                 if trigger_sweep:
@@ -98,13 +122,17 @@ class PIDControllerWorker(QThread):
                     self.sweep_angle = 0.0
                     self.sweep_data = []
                     self.hardware_manager.set_servo_angle(0.0)
-                    time.sleep(0.2)
+                    for _ in range(10):
+                        if not self.running or not self.sweep_mode:
+                            break
+                        time.sleep(0.02)
                     
-                self.sweep_angle += 2.0
+                # Calculate angle increment per 0.02s loop iteration for requested duration
+                step_increment = 3.6 / max(0.5, self.sweep_duration_sec)
+                self.sweep_angle += step_increment
+                
                 if self.sweep_angle <= 180.0:
                     self.hardware_manager.set_servo_angle(self.sweep_angle)
-                    time.sleep(0.05)
-                    # If spot is lost at this angle, treat intensity as 0
                     intensity = self.current_intensity if not self.spot_lost else 0.0
                     self.sweep_data.append((self.sweep_angle, intensity))
                     new_angle = self.sweep_angle
@@ -156,4 +184,8 @@ class PIDControllerWorker(QThread):
             
     def stop(self):
         self.running = False
+        self.sweep_mode = False
+        self._sweep_initialized = False
+        self.spot_lost_frames = 0
+        self.error_history.clear()
         self.wait()

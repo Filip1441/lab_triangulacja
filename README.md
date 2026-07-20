@@ -72,13 +72,21 @@ python main.py
 
 To calculate the target distance ($Z$) on paper:
 
-1. **Calculate physical baseline spot displacement ($X_{hit\_mm}$):**
-   $$X_{hit\_mm} = \frac{X_{px} - 320.0}{5.0}$$
-   *(where $X_{px}$ is the spot position, $320.0$ is the optical center, and $5.0$ px/mm is the scaling factor).*
+1. **Calculate the angular deviation of the spot ($\theta$):**
+   $$\tan(\theta) = \left( \frac{X_{px} - 320.0}{320.0} \right) \cdot \tan\left( \frac{\text{FOV}}{2} \right)$$
+   *(where $X_{px}$ is the pixel spot coordinate, $320.0$ is the camera's optical center, and $\text{FOV}$ is the camera field of view).*
 
-2. **Calculate target distance ($Z$):**
-   $$Z = (B - X_{hit\_mm}) \cdot \tan(\alpha)$$
-   *(where $B$ is the Base Distance between camera and laser, and $\alpha$ is the Laser Angle).*
+2. **Calculate the target distance ($Z$) using the law of sines (Two Triangles method):**
+   - **Triangle 1 (Non-right):**
+     - Base $CL = B$.
+     - Camera internal angle: $\beta = 90^\circ - \theta$.
+     - Laser beam angle: $\alpha$.
+     - Angle at spot vertex: $\gamma = 90^\circ - \alpha + \theta$.
+     - Oblique distance from camera lens to spot ($R$):
+       $$R = \frac{B \cdot \sin(\alpha)}{\cos(\alpha - \theta)}$$
+   - **Triangle 2 (Right-angled):**
+     - Height (distance $Z$) is the adjacent side to angle $\theta$:
+       $$Z = R \cdot \cos(\theta) = \frac{B \cdot \sin(\alpha) \cdot \cos(\theta)}{\cos(\alpha - \theta)} = \frac{B}{\frac{1}{\tan(\alpha)} + \tan(\theta)}$$
 
 ---
 
