@@ -62,8 +62,28 @@ class CameraWorker(QThread):
         
         # 1. Try Picamera2 for Raspberry Pi CSI ribbon camera
         try:
+            import os
             from picamera2 import Picamera2
-            picam2 = Picamera2()
+            
+            # Check for NoIR tuning profiles to eliminate pink/magenta tint on infrared-sensitive sensors
+            tuning_path = None
+            noir_candidates = [
+                "/usr/share/libcamera/ipa/rpi/vc4/ov5647_noir.json",
+                "/usr/share/libcamera/ipa/rpi/pisp/ov5647_noir.json",
+                "/usr/share/libcamera/ipa/rpi/vc4/imx219_noir.json",
+                "/usr/share/libcamera/ipa/rpi/vc4/imx708_noir.json",
+            ]
+            for candidate in noir_candidates:
+                if os.path.exists(candidate):
+                    tuning_path = candidate
+                    break
+
+            if tuning_path:
+                logger.info(f"Initializing Picamera2 with NoIR color tuning profile: {tuning_path}")
+                picam2 = Picamera2(tuning=tuning_path)
+            else:
+                picam2 = Picamera2()
+
             cam_config = picam2.create_preview_configuration(
                 main={
                     "size": (config.DEFAULT_IMAGE_WIDTH_PX, config.DEFAULT_IMAGE_HEIGHT_PX),
@@ -72,6 +92,13 @@ class CameraWorker(QThread):
             )
             picam2.configure(cam_config)
             picam2.start()
+            
+            # Enable continuous Auto Exposure and Auto White Balance
+            try:
+                picam2.set_controls({"AeEnable": True, "AwbEnable": True})
+            except Exception:
+                pass
+                
             self.picam2 = picam2
             self.use_picam2 = True
             logger.info("Live camera initialized via Picamera2 (CSI Ribbon Camera).")
