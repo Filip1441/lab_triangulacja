@@ -1,16 +1,19 @@
 import cv2
 import numpy as np
 import time
+import logging
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 import math
 
 import config
 
+logger = logging.getLogger(__name__)
+
 class CameraWorker(QThread):
     """
-    Background thread for grabbing frames from the camera or generating simulated frames.
-    Emits raw frames as numpy arrays.
+    Background thread for grabbing frames from the camera (Picamera2 CSI or OpenCV USB) or generating simulated frames.
+    Emits raw frames as numpy arrays (BGR format).
     """
     # Emits raw frame
     frame_ready = Signal(np.ndarray)
@@ -27,6 +30,9 @@ class CameraWorker(QThread):
         self.static_image_path = None
         
         self.capture = None
+        self.picam2 = None
+        self.use_picam2 = False
+        
         self._target_distance = 200.0  # Simulated target distance in mm
         self._base_distance = config.DEFAULT_BASE_DISTANCE_MM
         self.paused = False
@@ -50,41 +56,97 @@ class CameraWorker(QThread):
     def set_paused(self, paused: bool):
         self.paused = paused
 
+    def _init_live_camera(self):
+        """Initialize live camera: try Picamera2 (CSI ribbon) first, fallback to OpenCV cv2.VideoCapture."""
+        self._release_live_camera()
+        
+        # 1. Try Picamera2 for Raspberry Pi CSI ribbon camera
+        try:
+            from picamera2 import Picamera2
+            picam2 = Picamera2()
+            cam_config = picam2.create_preview_configuration(
+                main={
+                    "size": (config.DEFAULT_IMAGE_WIDTH_PX, config.DEFAULT_IMAGE_HEIGHT_PX),
+                    "format": "BGR888"
+                }
+            )
+            picam2.configure(cam_config)
+            picam2.start()
+            self.picam2 = picam2
+            self.use_picam2 = True
+            logger.info("Live camera initialized via Picamera2 (CSI Ribbon Camera).")
+            return
+        except Exception as e:
+            logger.info(f"Picamera2 not available or no CSI camera ({e}). Trying OpenCV VideoCapture...")
+            self.picam2 = None
+            self.use_picam2 = False
+
+        # 2. Fallback to cv2.VideoCapture (USB Camera or PC webcam)
+        try:
+            self.capture = cv2.VideoCapture(config.CAMERA_INDEX)
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.DEFAULT_IMAGE_WIDTH_PX)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.DEFAULT_IMAGE_HEIGHT_PX)
+            if self.capture.isOpened():
+                logger.info(f"Live camera initialized via OpenCV VideoCapture (index={config.CAMERA_INDEX}).")
+            else:
+                logger.warning(f"OpenCV VideoCapture failed to open index {config.CAMERA_INDEX}.")
+        except Exception as e:
+            logger.error(f"Error initializing OpenCV VideoCapture: {e}")
+
+    def _release_live_camera(self):
+        """Safely release Picamera2 and OpenCV capture objects."""
+        if self.picam2 is not None:
+            try:
+                self.picam2.stop()
+                self.picam2.close()
+            except Exception as e:
+                logger.warning(f"Error closing Picamera2: {e}")
+            self.picam2 = None
+            self.use_picam2 = False
+
+        if self.capture is not None:
+            try:
+                self.capture.release()
+            except Exception as e:
+                logger.warning(f"Error releasing cv2.VideoCapture: {e}")
+            self.capture = None
+
     def run(self):
         self.running = True
         
-        if self.input_mode == "Live" and self.capture is None:
-            self.capture = cv2.VideoCapture(config.CAMERA_INDEX)
+        if self.input_mode == "Live":
+            self._init_live_camera()
 
         # Preload static image if in static mode
         static_frame = None
         if self.input_mode == "Static" and self.static_image_path:
             static_frame = cv2.imread(self.static_image_path)
-            if static_frame is None:
-                # fallback blank
-                pass
 
         while self.running:
             start_time = time.time()
             
             # Safe Mode Switching
             if self.requested_mode != self.input_mode:
-                if self.capture is not None:
-                    self.capture.release()
-                    self.capture = None
+                self._release_live_camera()
                 
                 self.input_mode = self.requested_mode
                 self.static_image_path = self.requested_path
                 
                 if self.input_mode == "Live":
-                    self.capture = cv2.VideoCapture(config.CAMERA_INDEX)
+                    self._init_live_camera()
                 elif self.input_mode == "Static" and self.static_image_path:
                     static_frame = cv2.imread(self.static_image_path)
 
             if not self.paused:
                 frame = None
                 if self.input_mode == "Live":
-                    if self.capture is not None and self.capture.isOpened():
+                    if self.use_picam2 and self.picam2 is not None:
+                        try:
+                            frame = self.picam2.capture_array()
+                        except Exception as e:
+                            logger.error(f"Picamera2 capture error: {e}")
+                            frame = None
+                    elif self.capture is not None and self.capture.isOpened():
                         ret, frame = self.capture.read()
                         if not ret:
                             frame = None
@@ -102,9 +164,7 @@ class CameraWorker(QThread):
             sleep_time = max(1.0 / config.FPS_TARGET - elapsed, 0)
             time.sleep(sleep_time)
             
-        if self.capture is not None:
-            self.capture.release()
-            self.capture = None
+        self._release_live_camera()
 
     def _generate_simulated_frame(self) -> np.ndarray:
         """Generates a synthetic dark frame with a laser spot using a perspective camera model."""
