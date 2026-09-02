@@ -69,10 +69,10 @@ class ScriptRunner(QThread):
                 f2 = frames[1]
                 if f1 is None or f2 is None:
                     return
-                # Handle shape matching by height for horizontal widescreen layout
-                if f1.shape[0] != f2.shape[0]:
-                    h = f1.shape[0]
-                    w = int(f2.shape[1] * (h / f2.shape[0]))
+                # Handle shape matching by width for vertical stacking (one above the other)
+                if f1.shape[1] != f2.shape[1]:
+                    w = f1.shape[1]
+                    h = int(f2.shape[0] * (w / f2.shape[1]))
                     f2 = cv2.resize(f2, (w, h))
                 # Convert grayscale to color if mismatch
                 if len(f1.shape) == 2 and len(f2.shape) == 3:
@@ -82,11 +82,11 @@ class ScriptRunner(QThread):
                 # Create a 6px spacer gap
                 ch = f1.shape[2] if len(f1.shape) == 3 else 1
                 if ch == 3:
-                    gap = np.zeros((f1.shape[0], 6, 3), dtype=np.uint8)
+                    gap = np.zeros((6, f1.shape[1], 3), dtype=np.uint8)
                 else:
-                    gap = np.zeros((f1.shape[0], 6), dtype=np.uint8)
-                # Stack horizontally for widescreen display without vertical black bars
-                stacked = np.hstack((f1, gap, f2))
+                    gap = np.zeros((6, f1.shape[1]), dtype=np.uint8)
+                # Stack vertically (one above the other) to maximize display size
+                stacked = np.vstack((f1, gap, f2))
                 self.screen_signal.emit(stacked)
                 
         def set_servo_angle(angle):

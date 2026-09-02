@@ -119,13 +119,14 @@ class MainWindow(QMainWindow):
         visual_layout.setSpacing(8)
         self.schematic = InteractiveSchematicWidget()
         self.schematic.setMinimumHeight(350)
+        self.schematic.setMaximumWidth(280)
         
         # Right visual column (Spot Position widget + Camera widget)
         right_column = QVBoxLayout()
         right_column.setSpacing(6)
         
         self.spot_info_group = QGroupBox("Spot Location Details")
-        self.spot_info_group.setMaximumHeight(85)
+        self.spot_info_group.setMaximumHeight(80)
         spot_info_layout = QVBoxLayout(self.spot_info_group)
         spot_info_layout.setContentsMargins(8, 4, 8, 4)
         spot_info_layout.setSpacing(1)
@@ -145,7 +146,7 @@ class MainWindow(QMainWindow):
         right_column.addWidget(self.camera_display, 1)
         
         visual_layout.addWidget(self.schematic, 1)
-        visual_layout.addLayout(right_column, 2)
+        visual_layout.addLayout(right_column, 3)
         self.left_panel.addLayout(visual_layout)
         
         # Right Panel - Dynamic Stage Views
