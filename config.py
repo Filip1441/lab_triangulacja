@@ -9,7 +9,7 @@ SIMULATION_MODE = False
 
 # --- UI & Application Settings ---
 APP_NAME = "Triangulate App"
-WINDOW_SIZE = (1200, 800)
+WINDOW_SIZE = (1280, 720) # 16:9 standard HD
 FPS_TARGET = 30 # Target Frames Per Second for UI updates and camera
 
 # --- Hardware Configuration (Used if SIMULATION_MODE = False) ---

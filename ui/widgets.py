@@ -2,20 +2,22 @@ import cv2
 import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
-    QSlider, QSpinBox, QDoubleSpinBox, QGroupBox
+    QSlider, QSpinBox, QDoubleSpinBox, QGroupBox, QSizePolicy
 )
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import Qt, Slot
 
 class CameraDisplayWidget(QLabel):
     """
-    A QLabel that displays OpenCV frames efficiently.
+    A QLabel that displays OpenCV frames efficiently with responsive 16:9 widescreen scaling.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumSize(320, 240)
-        self.setStyleSheet("background-color: black; border: 1px solid #555;")
+        self.setMinimumSize(240, 135)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setStyleSheet("background-color: #121212; border: 1px solid #333; border-radius: 4px;")
+        self._current_pixmap = None
 
     @Slot(np.ndarray)
     def update_frame(self, frame: np.ndarray):
@@ -27,16 +29,27 @@ class CameraDisplayWidget(QLabel):
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
-            qimg = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            qimg = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
         else: # Grayscale/Binary
             h, w = frame.shape
             bytes_per_line = w
-            qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_Grayscale8)
+            qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_Grayscale8).copy()
 
-        # Scale keeping aspect ratio
-        pixmap = QPixmap.fromImage(qimg)
-        scaled_pixmap = pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.setPixmap(scaled_pixmap)
+        self._current_pixmap = QPixmap.fromImage(qimg)
+        self._update_display()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_display()
+
+    def _update_display(self):
+        if self._current_pixmap and not self._current_pixmap.isNull():
+            scaled_pixmap = self._current_pixmap.scaled(
+                self.size(), 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            self.setPixmap(scaled_pixmap)
 
 class ParameterSlider(QWidget):
     """

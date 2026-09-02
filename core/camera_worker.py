@@ -169,7 +169,12 @@ class CameraWorker(QThread):
                 if self.input_mode == "Live":
                     if self.use_picam2 and self.picam2 is not None:
                         try:
-                            frame = self.picam2.capture_array()
+                            raw = self.picam2.capture_array()
+                            if raw is not None:
+                                # Picamera2 returns RGB888. Convert to BGR for OpenCV processing and UI
+                                frame = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
+                            else:
+                                frame = None
                         except Exception as e:
                             logger.error(f"Picamera2 capture error: {e}")
                             frame = None

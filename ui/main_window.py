@@ -104,27 +104,31 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.btn_stage3)
         main_layout.addLayout(nav_layout)
         
-        # Content Area
+        # Content Area (Widescreen 16:9 layout)
         content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(8, 4, 8, 8)
+        content_layout.setSpacing(8)
         main_layout.addLayout(content_layout, 1)
         
         # Left Panel - Visual representation (Schematic + Camera)
         self.left_panel = QVBoxLayout()
-        content_layout.addLayout(self.left_panel, 2)
+        content_layout.addLayout(self.left_panel, 3)
         
         # Horizontal layout for Schematic (left) and Camera Display (right)
         visual_layout = QHBoxLayout()
+        visual_layout.setSpacing(8)
         self.schematic = InteractiveSchematicWidget()
-        self.schematic.setMinimumHeight(450)
+        self.schematic.setMinimumHeight(350)
         
-        # Right visual column (Spot Position widget + fixed-size Camera widget)
+        # Right visual column (Spot Position widget + Camera widget)
         right_column = QVBoxLayout()
+        right_column.setSpacing(6)
         
         self.spot_info_group = QGroupBox("Spot Location Details")
-        self.spot_info_group.setMaximumHeight(100)
+        self.spot_info_group.setMaximumHeight(85)
         spot_info_layout = QVBoxLayout(self.spot_info_group)
-        spot_info_layout.setContentsMargins(10, 5, 10, 5)
-        spot_info_layout.setSpacing(2)
+        spot_info_layout.setContentsMargins(8, 4, 8, 4)
+        spot_info_layout.setSpacing(1)
         
         self.lbl_spot_title = QLabel("Spot Location")
         self.lbl_spot_title.setStyleSheet("font-weight: bold; color: #4daafc;")
@@ -136,18 +140,17 @@ class MainWindow(QMainWindow):
         spot_info_layout.addWidget(self.lbl_spot_y)
         
         self.camera_display = CameraDisplayWidget()
-        self.camera_display.setMinimumSize(320, 360)
         
         right_column.addWidget(self.spot_info_group)
         right_column.addWidget(self.camera_display, 1)
         
         visual_layout.addWidget(self.schematic, 1)
-        visual_layout.addLayout(right_column, 1)
+        visual_layout.addLayout(right_column, 2)
         self.left_panel.addLayout(visual_layout)
         
         # Right Panel - Dynamic Stage Views
         self.stack = QStackedWidget()
-        content_layout.addWidget(self.stack, 1)
+        content_layout.addWidget(self.stack, 2)
         
         self.init_stage0_ui()
         self.init_stage1_ui()
