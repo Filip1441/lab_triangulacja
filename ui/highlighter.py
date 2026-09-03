@@ -27,7 +27,7 @@ class PythonSyntaxHighlighter(QSyntaxHighlighter):
         api_format.setForeground(QColor("#4ec9b0"))
         api_format.setFontWeight(QFont.Bold)
         api_funcs = [
-            "capture_frame", "send_to_screen", "set_servo_angle",
+            "capture_frame", "set_exposure", "send_to_screen", "set_servo_angle",
             "get_servo_angle", "set_detected_spot"
         ]
         for func in api_funcs:

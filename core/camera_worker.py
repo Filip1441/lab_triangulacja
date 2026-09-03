@@ -56,6 +56,28 @@ class CameraWorker(QThread):
     def set_paused(self, paused: bool):
         self.paused = paused
 
+    def set_exposure(self, val: float):
+        """Sets camera exposure value (for Picamera2 or OpenCV VideoCapture)."""
+        self._exposure_val = float(val)
+        if self.use_picam2 and self.picam2 is not None:
+            try:
+                self.picam2.set_controls({"ExposureValue": float(val)})
+                logger.info(f"Picamera2 ExposureValue set to {val}")
+            except Exception as e:
+                try:
+                    if val < 0:
+                        shutter_us = int(max(100, min(33000, 1000000 * (2 ** val))))
+                        self.picam2.set_controls({"AeEnable": False, "ExposureTime": shutter_us})
+                        logger.info(f"Picamera2 ExposureTime set to {shutter_us} us")
+                except Exception as e2:
+                    logger.warning(f"Failed to set Picamera2 exposure: {e} / {e2}")
+        elif self.capture is not None and self.capture.isOpened():
+            try:
+                self.capture.set(cv2.CAP_PROP_EXPOSURE, float(val))
+                logger.info(f"OpenCV CAP_PROP_EXPOSURE set to {val}")
+            except Exception as e:
+                logger.warning(f"Failed to set OpenCV exposure: {e}")
+
     def _init_live_camera(self):
         """Initialize live camera: try Picamera2 (CSI ribbon) first, fallback to OpenCV cv2.VideoCapture."""
         self._release_live_camera()

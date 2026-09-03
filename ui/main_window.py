@@ -165,17 +165,6 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         
-        # Exposure configuration
-        exp_group = QGroupBox("Camera Settings")
-        exp_layout = QHBoxLayout(exp_group)
-        exp_layout.addWidget(QLabel("Exposure (Value):"))
-        self.spin_exposure = QSpinBox()
-        self.spin_exposure.setRange(-13, 0)
-        self.spin_exposure.setValue(-5)
-        self.spin_exposure.valueChanged.connect(self.update_exposure)
-        exp_layout.addWidget(self.spin_exposure)
-        layout.addWidget(exp_group)
-        
         # Code Sandbox Group
         code_group = QGroupBox("Python Image Processing Sandbox")
         code_layout = QVBoxLayout(code_group)
@@ -186,6 +175,7 @@ class MainWindow(QMainWindow):
         self.txt_code.setPlainText(
             "# Available API functions:\n"
             "#   capture_frame() -> np.ndarray (or None if no camera signal)\n"
+            "#   set_exposure(val: float) -> sets camera exposure (e.g. -5, -8 to isolate laser spot)\n"
             "#   send_to_screen(frame) or send_to_screen(frame1, frame2) (outputs frames to display)\n"
             "#   set_servo_angle(angle: float) -> sets servo position (0.0 to 180.0)\n"
             "#   get_servo_angle() -> float (returns current servo angle)\n"
@@ -197,6 +187,8 @@ class MainWindow(QMainWindow):
             "import cv2\n"
             "import numpy as np\n"
             "import time\n\n"
+            "# Optional: Set camera exposure (negative value darkens image to isolate laser spot)\n"
+            "set_exposure(-5)\n\n"
             "# Full calibration and tracking pipeline template:\n"
             "while True:\n"
             "    frame = capture_frame()\n"
@@ -584,9 +576,6 @@ class MainWindow(QMainWindow):
             self.settings_dialog.spin_sim_dist.blockSignals(True)
             self.settings_dialog.spin_sim_dist.setValue(val)
             self.settings_dialog.spin_sim_dist.blockSignals(False)
-
-    def update_exposure(self, val: int):
-        self.camera_worker.set_exposure(val)
 
     def update_camera_fov(self, val: float):
         self.camera_fov = val

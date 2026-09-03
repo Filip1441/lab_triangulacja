@@ -57,6 +57,9 @@ class ScriptRunner(QThread):
         def capture_frame():
             return self.main_window.current_raw_frame
             
+        def set_exposure(val):
+            self.main_window.camera_worker.set_exposure(val)
+            
         def send_to_screen(*frames):
             if not frames:
                 return
@@ -175,6 +178,7 @@ class ScriptRunner(QThread):
             
         global_vars = {
             'capture_frame': capture_frame,
+            'set_exposure': set_exposure,
             'send_to_screen': send_to_screen,
             'set_servo_angle': set_servo_angle,
             'get_servo_angle': get_servo_angle,
