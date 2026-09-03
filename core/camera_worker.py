@@ -56,27 +56,45 @@ class CameraWorker(QThread):
     def set_paused(self, paused: bool):
         self.paused = paused
 
-    def set_exposure(self, val: float):
-        """Sets camera exposure value (for Picamera2 or OpenCV VideoCapture)."""
-        self._exposure_val = float(val)
+    def set_exposure_ms(self, val_ms: float):
+        """Sets camera exposure time in milliseconds (e.g. 2.0 = 2ms)."""
+        self._exposure_ms = float(val_ms)
+        shutter_us = max(100, int(val_ms * 1000.0))
         if self.use_picam2 and self.picam2 is not None:
             try:
-                self.picam2.set_controls({"ExposureValue": float(val)})
-                logger.info(f"Picamera2 ExposureValue set to {val}")
+                self.picam2.set_controls({"AeEnable": False, "ExposureTime": shutter_us})
+                logger.info(f"Picamera2 ExposureTime set to {shutter_us} us ({val_ms} ms)")
             except Exception as e:
-                try:
-                    if val < 0:
-                        shutter_us = int(max(100, min(33000, 1000000 * (2 ** val))))
-                        self.picam2.set_controls({"AeEnable": False, "ExposureTime": shutter_us})
-                        logger.info(f"Picamera2 ExposureTime set to {shutter_us} us")
-                except Exception as e2:
-                    logger.warning(f"Failed to set Picamera2 exposure: {e} / {e2}")
+                logger.warning(f"Failed to set Picamera2 exposure time: {e}")
         elif self.capture is not None and self.capture.isOpened():
             try:
-                self.capture.set(cv2.CAP_PROP_EXPOSURE, float(val))
-                logger.info(f"OpenCV CAP_PROP_EXPOSURE set to {val}")
+                self.capture.set(cv2.CAP_PROP_EXPOSURE, float(val_ms))
+                logger.info(f"OpenCV CAP_PROP_EXPOSURE set to {val_ms} ms")
             except Exception as e:
-                logger.warning(f"Failed to set OpenCV exposure: {e}")
+                logger.warning(f"Failed to set OpenCV exposure time: {e}")
+
+    def set_exposure_ev(self, val_ev: float):
+        """Sets camera exposure compensation in EV units (e.g. -5.0, -2.0, 0.0)."""
+        self._exposure_ev = float(val_ev)
+        if self.use_picam2 and self.picam2 is not None:
+            try:
+                self.picam2.set_controls({"AeEnable": True, "ExposureValue": float(val_ev)})
+                logger.info(f"Picamera2 ExposureValue set to {val_ev} EV")
+            except Exception as e:
+                logger.warning(f"Failed to set Picamera2 exposure EV: {e}")
+        elif self.capture is not None and self.capture.isOpened():
+            try:
+                self.capture.set(cv2.CAP_PROP_EXPOSURE, float(val_ev))
+                logger.info(f"OpenCV CAP_PROP_EXPOSURE set to {val_ev} EV")
+            except Exception as e:
+                logger.warning(f"Failed to set OpenCV exposure EV: {e}")
+
+    def set_exposure(self, val: float):
+        """Sets exposure. If val <= 0, treats as EV compensation; if val > 0, treats as exposure time in ms."""
+        if val <= 0:
+            self.set_exposure_ev(val)
+        else:
+            self.set_exposure_ms(val)
 
     def _init_live_camera(self):
         """Initialize live camera: try Picamera2 (CSI ribbon) first, fallback to OpenCV cv2.VideoCapture."""
