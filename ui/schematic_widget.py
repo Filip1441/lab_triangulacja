@@ -59,8 +59,8 @@ class InteractiveSchematicWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(250)
-        self.setMinimumWidth(300)
+        self.setMinimumHeight(220)
+        self.setMinimumWidth(180)
         
         # State
         self.base_distance = config.DEFAULT_BASE_DISTANCE_MM
@@ -96,26 +96,32 @@ class InteractiveSchematicWidget(QWidget):
         # Clear background
         painter.fillRect(0, 0, w, h, self.col_bg)
         
-        # Fixed scale mapping
-        scale = 0.6
+        # Dynamic horizontal scaling: ensure baseline fits with comfortable margins
+        pad_x = 32.0
+        avail_w = max(80.0, w - 2 * pad_x)
+        scale_x = max(0.4, min(1.2, avail_w / max(50.0, self.base_distance)))
+        base_span = self.base_distance * scale_x
+        cam_x = (w - base_span) / 2.0
+        laser_x = cam_x + base_span
         
-        # Coordinates of Camera & Laser at the bottom
-        cam_x = w * 0.35
-        cam_y = h - 45
-        
-        laser_x = cam_x + (self.base_distance * scale)
+        # Position Camera & Laser comfortably above the bottom (leaves ~25px breathing room below base label)
+        cam_y = h - 55.0
         laser_y = cam_y
         
-        # Check if we need to draw a visual break (if object is too far)
-        # Calculate maximum distance that can be drawn without going off the top edge
-        max_no_break_dist = (h - 80) / scale
+        # Available vertical space for the object
+        top_margin = 40.0
+        avail_h = max(120.0, cam_y - top_margin)
+        scale_y = max(0.5, min(1.4, avail_h / 320.0))
+        
+        # Visual distance mapping with break line if too far
+        max_no_break_dist = (avail_h - 20.0) / scale_y
         visual_dist = self.object_distance
         has_break = False
         if self.object_distance > max_no_break_dist:
-            visual_dist = max_no_break_dist - 30.0
+            visual_dist = max_no_break_dist - 25.0
             has_break = True
             
-        obj_y = cam_y - (visual_dist * scale)
+        obj_y = cam_y - (visual_dist * scale_y)
         
         # Calculate physical intersection
         rad = math.radians(self.angle_deg)
@@ -124,8 +130,8 @@ class InteractiveSchematicWidget(QWidget):
         else:
             hit_x_phys = self.base_distance - (10000.0 if self.angle_deg < 90 else -10000.0)
             
-        # Visual position of the hit spot
-        hit_x = cam_x + (hit_x_phys * scale)
+        # Visual position of the hit spot on screen
+        hit_x = cam_x + (hit_x_phys * scale_x)
         hit_x_draw = max(-10000, min(10000, hit_x))
         
         # 1. Draw camera axis (dashed gray) with optional break
@@ -137,7 +143,7 @@ class InteractiveSchematicWidget(QWidget):
             break_start_y = cam_y - (visual_dist * scale * 0.4)
             painter.drawLine(int(cam_x), int(cam_y), int(cam_x), int(break_start_y))
             
-            # Draw break symbol "..." or " ~ "
+            # Draw break symbol "..."
             painter.setPen(Qt.white)
             painter.setFont(QFont("Arial", 12, QFont.Bold))
             painter.drawText(int(cam_x - 10), int(break_start_y - 10), "...")
@@ -164,43 +170,43 @@ class InteractiveSchematicWidget(QWidget):
         painter.setBrush(QColor(0, 255, 0))
         painter.drawEllipse(QPointF(hit_x_draw, obj_y), 4, 4)
         
-        # 4. Draw Camera box
+        # 4. Draw Camera box (placed above cam_y)
         painter.setBrush(self.col_cam)
-        painter.drawRect(int(cam_x - 15), int(cam_y), 30, 20)
+        painter.drawRect(int(cam_x - 15), int(cam_y - 18), 30, 18)
         painter.setPen(Qt.white)
-        painter.setFont(QFont("Arial", 9))
-        painter.drawText(int(cam_x - 12), int(cam_y + 15), "CAM")
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.drawText(int(cam_x - 12), int(cam_y - 5), "CAM")
         
-        # 5. Draw Laser box
+        # 5. Draw Laser box (placed above laser_y)
         painter.setBrush(self.col_laser)
-        painter.drawRect(int(laser_x - 15), int(laser_y), 30, 20)
+        painter.drawRect(int(laser_x - 15), int(laser_y - 18), 30, 18)
         painter.setPen(Qt.black)
-        painter.drawText(int(laser_x - 12), int(laser_y + 15), "LSR")
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.drawText(int(laser_x - 11), int(laser_y - 5), "LSR")
         
-        # 6. Draw Editable Text Overlay (Base distance)
+        # 6. Draw Editable Text Overlay (Base distance - centered underneath)
         mid_x = (cam_x + laser_x) / 2
         base_text = f"B: {self.base_distance:.1f}mm"
         
-        painter.setFont(QFont("Arial", 10, QFont.Bold))
+        painter.setFont(QFont("Arial", 9, QFont.Bold))
         fm = painter.fontMetrics()
         
-        # Base Distance Rect
-        b_w = fm.horizontalAdvance(base_text) + 10
-        self.rect_base = QRect(int(mid_x - b_w/2), int(cam_y + 5), b_w, 20)
+        # Base Distance Rect - cleanly positioned below the boxes
+        b_w = fm.horizontalAdvance(base_text) + 12
+        self.rect_base = QRect(int(mid_x - b_w/2), int(cam_y + 8), b_w, 22)
         painter.setBrush(self.col_text_bg)
-        painter.setPen(Qt.NoPen)
-        painter.drawRect(self.rect_base)
+        painter.setPen(QPen(QColor("#444"), 1))
+        painter.drawRoundedRect(self.rect_base, 3, 3)
         painter.setPen(Qt.white)
         painter.drawText(self.rect_base, Qt.AlignCenter, base_text)
         
-        # Angle Rect
+        # Angle Rect - cleanly positioned above the laser box
         angle_text = f"a: {self.angle_deg:.1f}°"
-        a_w = fm.horizontalAdvance(angle_text) + 10
-        # Place it near the laser
-        self.rect_angle = QRect(int(laser_x - a_w/2), int(laser_y - 25), a_w, 20)
+        a_w = fm.horizontalAdvance(angle_text) + 12
+        self.rect_angle = QRect(int(laser_x - a_w/2), int(laser_y - 44), a_w, 22)
         painter.setBrush(self.col_text_bg)
-        painter.setPen(Qt.NoPen)
-        painter.drawRect(self.rect_angle)
+        painter.setPen(QPen(QColor("#00aaff"), 1))
+        painter.drawRoundedRect(self.rect_angle, 3, 3)
         painter.setPen(Qt.white)
         painter.drawText(self.rect_angle, Qt.AlignCenter, angle_text)
 

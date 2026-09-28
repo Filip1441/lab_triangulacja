@@ -8,11 +8,11 @@ except ImportError:
     pass
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QStackedWidget, QLabel, QGroupBox, 
     QTableWidget, QTableWidgetItem, QHeaderView,
     QDoubleSpinBox, QSpinBox, QStatusBar, QCheckBox, QTabWidget,
-    QMessageBox, QTextEdit, QComboBox, QFileDialog
+    QMessageBox, QTextEdit, QComboBox, QFileDialog, QButtonGroup
 )
 from PySide6.QtGui import QShortcut, QKeySequence, QFont, QAction
 from PySide6.QtCore import Qt, Slot, QTimer
@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         
         # Top Navigation
         nav_layout = QHBoxLayout()
-        self.btn_stage0 = QPushButton("0. Setup & Scripting")
+        self.btn_stage0 = QPushButton("0. Setup && Scripting")
         self.btn_stage1 = QPushButton("1. Empirical Calibration")
         self.btn_stage2 = QPushButton("2. Analytical Modeling")
         self.btn_stage3 = QPushButton("3. Active Tracking")
@@ -94,6 +94,15 @@ class MainWindow(QMainWindow):
         self.btn_stage1.setCheckable(True)
         self.btn_stage2.setCheckable(True)
         self.btn_stage3.setCheckable(True)
+        
+        # Exclusive navigation button group
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+        self.nav_group.addButton(self.btn_stage0, 0)
+        self.nav_group.addButton(self.btn_stage1, 1)
+        self.nav_group.addButton(self.btn_stage2, 2)
+        self.nav_group.addButton(self.btn_stage3, 3)
+        self.nav_group.idClicked.connect(self.switch_stage)
         
         # Stage 0 is default
         self.btn_stage0.setChecked(True)
@@ -118,7 +127,7 @@ class MainWindow(QMainWindow):
         visual_layout = QHBoxLayout()
         visual_layout.setSpacing(8)
         self.schematic = InteractiveSchematicWidget()
-        self.schematic.setMinimumHeight(350)
+        self.schematic.setMinimumHeight(180)
         self.schematic.setMaximumWidth(280)
         
         # Right visual column (Spot Position widget + Camera widget)
@@ -315,17 +324,19 @@ class MainWindow(QMainWindow):
         self.table_s1.setHorizontalHeaderLabels(["Angle (deg)", "Px X", "Px Y", "Dist (mm)"])
         self.table_s1.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table_s1.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table_s1.setMaximumHeight(125)
         tab_a_layout.addWidget(self.table_s1)
         
-        fit_btn_layout = QHBoxLayout()
+        fit_btn_layout = QGridLayout()
+        fit_btn_layout.setSpacing(6)
         self.btn_delete_s1 = QPushButton("Delete Selected")
+        self.btn_export_s1 = QPushButton("Export CSV")
         self.btn_fit_linear = QPushButton("Fit Linear")
         self.btn_fit_exp = QPushButton("Fit Exponential")
-        self.btn_export_s1 = QPushButton("Export CSV")
-        fit_btn_layout.addWidget(self.btn_delete_s1)
-        fit_btn_layout.addWidget(self.btn_fit_linear)
-        fit_btn_layout.addWidget(self.btn_fit_exp)
-        fit_btn_layout.addWidget(self.btn_export_s1)
+        fit_btn_layout.addWidget(self.btn_delete_s1, 0, 0)
+        fit_btn_layout.addWidget(self.btn_export_s1, 0, 1)
+        fit_btn_layout.addWidget(self.btn_fit_linear, 1, 0)
+        fit_btn_layout.addWidget(self.btn_fit_exp, 1, 1)
         tab_a_layout.addLayout(fit_btn_layout)
         
         self.lbl_fit_eq = QLabel("Equation: N/A")
@@ -356,6 +367,7 @@ class MainWindow(QMainWindow):
         self.calib_plot.setBackground('#1e1e1e')
         self.calib_plot.setLabel('bottom', 'Displacement X (px)')
         self.calib_plot.setLabel('left', 'Distance (mm)')
+        self.calib_plot.setMinimumHeight(150)
         
         self.scatter_item = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 136, 0, 200))
         self.calib_plot.addItem(self.scatter_item)
@@ -468,6 +480,7 @@ class MainWindow(QMainWindow):
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('#1e1e1e')
         self.plot_widget.setYRange(0, 640)
+        self.plot_widget.setMinimumHeight(150)
         
         self.target_line = self.plot_widget.plot(pen=pg.mkPen('r', width=2))
         self.actual_line = self.plot_widget.plot(pen=pg.mkPen('g', width=2))
@@ -481,11 +494,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(page)
 
     def connect_signals(self):
-        # Nav Buttons
-        self.btn_stage0.clicked.connect(lambda: self.switch_stage(0))
-        self.btn_stage1.clicked.connect(lambda: self.switch_stage(1))
-        self.btn_stage2.clicked.connect(lambda: self.switch_stage(2))
-        self.btn_stage3.clicked.connect(lambda: self.switch_stage(3))
         
         # Camera / Hardware Signals
         self.camera_worker.frame_ready.connect(self.process_and_display_frame)
@@ -531,10 +539,9 @@ class MainWindow(QMainWindow):
 
     def switch_stage(self, index: int):
         self.stack.setCurrentIndex(index)
-        self.btn_stage0.setChecked(index == 0)
-        self.btn_stage1.setChecked(index == 1)
-        self.btn_stage2.setChecked(index == 2)
-        self.btn_stage3.setChecked(index == 3)
+        btn = self.nav_group.button(index)
+        if btn and not btn.isChecked():
+            btn.setChecked(True)
         
         if index == 3:
             self.slider_servo.setEnabled(False) 
@@ -934,6 +941,10 @@ class MainWindow(QMainWindow):
                 self.lbl_s3_calc_dist.setStyleSheet("color: #00ffff; font-size: 16px; font-weight: bold; padding: 10px;")
 
     def closeEvent(self, event):
+        try:
+            self.camera_worker.frame_ready.disconnect()
+        except Exception:
+            pass
         self.camera_worker.stop()
         self.pid_worker.stop()
         if self.script_runner and self.script_runner.isRunning():
