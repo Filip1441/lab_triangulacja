@@ -62,7 +62,13 @@ class CameraWorker(QThread):
         shutter_us = max(100, int(val_ms * 1000.0))
         if self.use_picam2 and self.picam2 is not None:
             try:
-                self.picam2.set_controls({"AeEnable": False, "ExposureTime": shutter_us})
+                # Extend FrameDurationLimits to support long exposures up to 2000ms (2s)
+                frame_duration = max(33333, shutter_us)
+                self.picam2.set_controls({
+                    "FrameDurationLimits": (33333, frame_duration),
+                    "AeEnable": False,
+                    "ExposureTime": shutter_us
+                })
                 logger.info(f"Picamera2 ExposureTime set to {shutter_us} us ({val_ms} ms)")
             except Exception as e:
                 logger.warning(f"Failed to set Picamera2 exposure time: {e}")
