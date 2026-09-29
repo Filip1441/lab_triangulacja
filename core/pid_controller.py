@@ -109,9 +109,9 @@ class PIDControllerWorker(QThread):
         self.spot_lost_frames = 0
         self.error_history.clear()
         
-        min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
-        max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
-        base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        min_a = getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0)
+        max_a = getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0)
+        base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)
         
         while self.running:
             loop_dt = getattr(self, 'loop_dt', 0.0667)
@@ -232,7 +232,7 @@ class PIDControllerWorker(QThread):
             time.sleep(loop_dt)
             
         # Clean background exit: reset servo to base
-        base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)
         self.hardware_manager.set_servo_angle(base)
             
     def stop(self):
@@ -242,5 +242,5 @@ class PIDControllerWorker(QThread):
         self.spot_lost_frames = 0
         self.error_history.clear()
         # Non-blocking stop: return immediately without freezing GUI thread!
-        base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)
         self.hardware_manager.set_servo_angle(base)

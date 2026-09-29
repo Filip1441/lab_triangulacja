@@ -149,7 +149,7 @@ class HardwareManager(QObject):
         self.use_st3215 = False
         self.st3215 = None
         self.use_pigpio = False
-        base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)
         self.current_angle = base_angle
         self.target_angle = base_angle
         self.sim_pot_value = 0.0
@@ -202,22 +202,32 @@ class HardwareManager(QObject):
             self.simulation_mode = True
 
     def set_servo_angle(self, angle: float):
-        """Sets the servo to a specific angle, strictly clamped to safe bounds to prevent wire twisting."""
-        min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
-        max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
-        angle = max(min_a, min(max_a, angle))
-        print(f"(SERVO_SET_POSITION) {angle:.2f}", flush=True)
+        """Sets the servo to a specific logical angle, converting to physical angle via offset."""
+        min_log = getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0)
+        max_log = getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0)
+        angle = max(min_log, min(max_log, float(angle)))
         self.target_angle = angle
         self.current_angle = angle
         
+        # Convert logical angle (where 90.0 deg is parallel) to physical servo position
+        offset = getattr(config, 'SERVO_HARDWARE_OFFSET', -7.1)
+        physical_angle = angle + offset
+        
+        # Hard safety clamp on physical angle to protect wires
+        min_p = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
+        max_p = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
+        physical_angle = max(min_p, min(max_p, physical_angle))
+        
+        print(f"(SERVO_SET_POSITION) logical={angle:.2f}°, physical={physical_angle:.2f}°", flush=True)
+        
         if self.use_st3215 and self.st3215:
             try:
-                self.st3215.set_angle(angle)
+                self.st3215.set_angle(physical_angle)
             except Exception as e:
                 logger.warning(f"set_servo_angle ST3215 error: {e}")
         elif self.use_pigpio:
             try:
-                pulse = config.SERVO_MIN_PULSE + (angle / config.SERVO_MAX_ANGLE) * (config.SERVO_MAX_PULSE - config.SERVO_MIN_PULSE)
+                pulse = config.SERVO_MIN_PULSE + (physical_angle / config.SERVO_MAX_ANGLE) * (config.SERVO_MAX_PULSE - config.SERVO_MIN_PULSE)
                 self.pi.set_servo_pulsewidth(self.servo_pin, pulse)
             except Exception as e:
                 logger.warning(f"set_servo_angle pigpio error: {e}")
@@ -225,7 +235,7 @@ class HardwareManager(QObject):
             pass  # Handled by simulation timer
 
     def get_servo_angle(self) -> float:
-        """Returns the current angle of the servo instantly from cache (non-blocking for UI & camera)."""
+        """Returns the current logical angle of the servo (e.g. 90.0 deg when parallel)."""
         return self.current_angle
 
     def get_physical_encoder_angle(self) -> float:

@@ -304,9 +304,9 @@ class MainWindow(QMainWindow):
         self.hw_group = QGroupBox("Hardware Control")
         hw_layout = QVBoxLayout(self.hw_group)
         
-        base_angle = int(getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0))
-        min_angle = int(getattr(config, 'SERVO_MIN_ANGLE', 30.0))
-        max_angle = int(getattr(config, 'SERVO_MAX_ANGLE', 130.0))
+        base_angle = int(round(getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)))
+        min_angle = int(getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0))
+        max_angle = int(getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0))
         self.slider_servo = ParameterSlider("Servo Angle", min_angle, max_angle, base_angle)
         hw_layout.addWidget(self.slider_servo)
         layout.addWidget(self.hw_group)
