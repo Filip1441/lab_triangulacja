@@ -198,8 +198,8 @@ class MainWindow(QMainWindow):
             "import cv2\n"
             "import numpy as np\n"
             "import time\n\n"
-            "# Set physical exposure time to 2.0 ms (short exposure darkens background for laser tracking)\n"
-            "set_exposure_ms(2.0)\n\n"
+            "# Set physical exposure time to 10.0 ms (optimized for laser spot tracking)\n"
+            "set_exposure_ms(10.0)\n\n"
             "# Full calibration and tracking pipeline template:\n"
             "while True:\n"
             "    frame = capture_frame()\n"
@@ -296,7 +296,10 @@ class MainWindow(QMainWindow):
         self.hw_group = QGroupBox("Hardware Control")
         hw_layout = QVBoxLayout(self.hw_group)
         
-        self.slider_servo = ParameterSlider("Servo Angle", 0, 180, 45)
+        base_angle = int(getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0))
+        min_angle = int(getattr(config, 'SERVO_MIN_ANGLE', 30.0))
+        max_angle = int(getattr(config, 'SERVO_MAX_ANGLE', 130.0))
+        self.slider_servo = ParameterSlider("Servo Angle", min_angle, max_angle, base_angle)
         hw_layout.addWidget(self.slider_servo)
         layout.addWidget(self.hw_group)
         

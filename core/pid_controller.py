@@ -99,9 +99,13 @@ class PIDControllerWorker(QThread):
                 
             self.error_history.append(error)
             
-            # Check for Sweep triggers
+            # Run at configured rate (default 15 Hz to save CPU and ensure zero camera lag)
+            update_hz = getattr(config, 'PID_UPDATE_RATE_HZ', 15)
+            loop_dt = 1.0 / max(1, update_hz)
+            
+            # Check for Sweep triggers (if enabled)
             if self.sweep_enabled and not self.sweep_mode:
-                timeout_frames = int(self.sweep_timeout_sec / 0.02)
+                timeout_frames = int(self.sweep_timeout_sec / loop_dt)
                 trigger_sweep = False
                 if self.spot_lost_frames > timeout_frames:
                     trigger_sweep = True
@@ -115,23 +119,29 @@ class PIDControllerWorker(QThread):
                     self.integral = 0.0
             
             current_angle = self.hardware_manager.get_servo_angle()
+            base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+            min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
+            max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
             
             if self.sweep_mode:
+                sweep_span = getattr(config, 'DEFAULT_SWEEP_RANGE_DEG', 25.0)
+                min_sweep = max(min_a, base_angle - sweep_span)
+                max_sweep = min(max_a, base_angle + sweep_span)
+                
                 if not self._sweep_initialized:
                     self._sweep_initialized = True
-                    self.sweep_angle = 0.0
+                    self.sweep_angle = min_sweep
                     self.sweep_data = []
-                    self.hardware_manager.set_servo_angle(0.0)
-                    for _ in range(10):
+                    self.hardware_manager.set_servo_angle(min_sweep)
+                    for _ in range(5):
                         if not self.running or not self.sweep_mode:
                             break
-                        time.sleep(0.02)
+                        time.sleep(loop_dt)
                     
-                # Calculate angle increment per 0.02s loop iteration for requested duration
-                step_increment = 3.6 / max(0.5, self.sweep_duration_sec)
+                step_increment = ((max_sweep - min_sweep) / max(0.5, self.sweep_duration_sec)) * loop_dt
                 self.sweep_angle += step_increment
                 
-                if self.sweep_angle <= 180.0:
+                if self.sweep_angle <= max_sweep:
                     self.hardware_manager.set_servo_angle(self.sweep_angle)
                     intensity = self.current_intensity if not self.spot_lost else 0.0
                     self.sweep_data.append((self.sweep_angle, intensity))
@@ -139,28 +149,22 @@ class PIDControllerWorker(QThread):
                 else:
                     if self.sweep_data:
                         best_angle, max_int = max(self.sweep_data, key=lambda x: x[1])
-                        if max_int > 5.0:
-                            self.hardware_manager.set_servo_angle(best_angle)
-                            new_angle = best_angle
-                        else:
-                            self.hardware_manager.set_servo_angle(90.0)
-                            new_angle = 90.0
+                        target_ret = best_angle if max_int > 5.0 else base_angle
                     else:
-                        new_angle = 90.0
-                        
+                        target_ret = base_angle
+                    self.hardware_manager.set_servo_angle(target_ret)
+                    new_angle = target_ret
                     self.sweep_mode = False
                     self._sweep_initialized = False
                     self.error_history.clear()
                     self.spot_lost_frames = 0
-                    self.stable_frames = 0
             else:
                 # Proportional
                 p_term = self.kp * error
                 
-                # Integral
+                # Integral with anti-windup
                 self.integral += error * dt
-                # Anti-windup
-                self.integral = max(-500.0, min(500.0, self.integral))
+                self.integral = max(-100.0, min(100.0, self.integral))
                 i_term = self.ki * self.integral
                 
                 # Derivative
@@ -168,19 +172,17 @@ class PIDControllerWorker(QThread):
                 d_term = self.kd * derivative
                 
                 output = p_term + i_term + d_term
+                output = max(-2.0, min(2.0, output))
                 
-                # Clamp step
-                output = max(-1.0, min(1.0, output))
-                new_angle = current_angle + output
-                self.hardware_manager.set_servo_angle(new_angle)
+                new_angle = max(min_a, min(max_a, current_angle + output))
+                if abs(new_angle - current_angle) >= 0.08:
+                    self.hardware_manager.set_servo_angle(new_angle)
 
             self.pid_updated.emit(self.current_x, self.target_x, error, new_angle)
             
             self.prev_error = error
             self.last_time = current_time
-            
-            # Run at approx 50 Hz
-            time.sleep(0.02)
+            time.sleep(loop_dt)
             
     def stop(self):
         self.running = False
@@ -189,3 +191,6 @@ class PIDControllerWorker(QThread):
         self.spot_lost_frames = 0
         self.error_history.clear()
         self.wait()
+        # Return safely to calibrated base position
+        base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        self.hardware_manager.set_servo_angle(base)

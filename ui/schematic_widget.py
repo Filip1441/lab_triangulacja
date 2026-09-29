@@ -63,8 +63,8 @@ class InteractiveSchematicWidget(QWidget):
         self.setMinimumWidth(180)
         
         # State
-        self.base_distance = config.DEFAULT_BASE_DISTANCE_MM
-        self.angle_deg = 45.0 # Will be updated by HardwareManager/MainWindow
+        self.base_distance = getattr(config, 'DEFAULT_BASE_DISTANCE_MM', 30.0)
+        self.angle_deg = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
         self.object_distance = 200.0 # Will be updated by MainWindow
         
         # Hitboxes for clicking

@@ -148,6 +148,10 @@ class CameraWorker(QThread):
             self.picam2 = picam2
             self.use_picam2 = True
             logger.info("Live camera initialized via Picamera2 (CSI Ribbon Camera).")
+            
+            # Apply default exposure time (e.g. 10.0 ms)
+            exp_ms = getattr(config, 'DEFAULT_EXPOSURE_MS', 10.0)
+            self.set_exposure_ms(exp_ms)
             return
         except Exception as e:
             logger.info(f"Picamera2 not available or no CSI camera ({e}). Trying OpenCV VideoCapture...")
@@ -160,6 +164,8 @@ class CameraWorker(QThread):
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.DEFAULT_IMAGE_WIDTH_PX)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.DEFAULT_IMAGE_HEIGHT_PX)
             if self.capture.isOpened():
+                exp_ms = getattr(config, 'DEFAULT_EXPOSURE_MS', 10.0)
+                self.set_exposure_ms(exp_ms)
                 logger.info(f"Live camera initialized via OpenCV VideoCapture (index={config.CAMERA_INDEX}).")
             else:
                 logger.warning(f"OpenCV VideoCapture failed to open index {config.CAMERA_INDEX}.")

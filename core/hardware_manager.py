@@ -1,6 +1,7 @@
 import time
 import glob
 import logging
+import threading
 from PySide6.QtCore import QObject, Signal, QTimer
 
 import config
@@ -12,13 +13,14 @@ class ST3215ServoDriver:
     """
     Driver for Waveshare ST3215 Serial Bus Servo over UART (/dev/ttyACM* or /dev/ttyUSB*).
     12-bit magnetic encoder (0-4095 steps for 360 deg, ~11.378 steps/deg).
-    Baudrate: 1,000,000 baud (1 Mbps).
+    Baudrate: 1,000,000 baud (1 Mbps). Thread-safe via internal mutex lock.
     """
     def __init__(self, port=None, baudrate=1000000, servo_id=1):
         self.servo_id = servo_id
         self.baudrate = baudrate
         self.ser = None
         self.port = port
+        self._lock = threading.Lock()
         self._init_port()
 
     def _init_port(self):
@@ -30,6 +32,7 @@ class ST3215ServoDriver:
         for p in candidates:
             try:
                 s = serial.Serial(p, self.baudrate, timeout=0.05)
+                time.sleep(0.05)
                 if self._ping(s, self.servo_id):
                     self.ser = s
                     self.port = p
@@ -57,33 +60,51 @@ class ST3215ServoDriver:
     def _write_reg(self, addr, data_bytes):
         if not self.ser or not getattr(self.ser, 'is_open', False):
             return
-        try:
-            cmd = [self.servo_id, len(data_bytes) + 3, 0x03, addr] + list(data_bytes)
-            pkt = bytearray([0xFF, 0xFF]) + bytearray(cmd) + bytearray([self._checksum(cmd)])
-            self.ser.reset_input_buffer()
-            self.ser.write(pkt)
-        except Exception as e:
-            logger.debug(f"ST3215 write_reg failed: {e}")
+        with self._lock:
+            try:
+                cmd = [self.servo_id, len(data_bytes) + 3, 0x03, addr] + list(data_bytes)
+                pkt = bytearray([0xFF, 0xFF]) + bytearray(cmd) + bytearray([self._checksum(cmd)])
+                self.ser.reset_input_buffer()
+                self.ser.write(pkt)
+            except Exception as e:
+                logger.debug(f"ST3215 write_reg failed: {e}")
 
     def _read_reg(self, addr, length):
         if not self.ser or not getattr(self.ser, 'is_open', False):
             return None
-        try:
-            cmd = [self.servo_id, 4, 0x02, addr, length]
-            pkt = bytearray([0xFF, 0xFF]) + bytearray(cmd) + bytearray([self._checksum(cmd)])
-            self.ser.reset_input_buffer()
-            self.ser.write(pkt)
-            time.sleep(0.01)
-            resp = self.ser.read(6 + length)
-            if len(resp) >= 6 + length and resp[0] == 0xFF and resp[1] == 0xFF:
-                return resp[5:5+length]
-        except Exception as e:
-            logger.debug(f"ST3215 read_reg failed: {e}")
-        return None
+        with self._lock:
+            try:
+                cmd = [self.servo_id, 4, 0x02, addr, length]
+                pkt = bytearray([0xFF, 0xFF]) + bytearray(cmd) + bytearray([self._checksum(cmd)])
+                self.ser.reset_input_buffer()
+                self.ser.write(pkt)
+                
+                # Read response with packet header search and checksum verification
+                start_t = time.time()
+                buf = bytearray()
+                expected_len = 6 + length
+                while time.time() - start_t < 0.03:
+                    if self.ser.in_waiting:
+                        buf.extend(self.ser.read(self.ser.in_waiting))
+                        idx = 0
+                        while idx <= len(buf) - expected_len:
+                            if buf[idx] == 0xFF and buf[idx+1] == 0xFF and buf[idx+2] == self.servo_id:
+                                pkt_len = buf[idx+3]
+                                if pkt_len == length + 2 and idx + 4 + pkt_len <= len(buf):
+                                    chk_calc = (~sum(buf[idx+2 : idx+3+pkt_len])) & 0xFF
+                                    if buf[idx+3+pkt_len] == chk_calc:
+                                        return bytes(buf[idx+5 : idx+5+length])
+                            idx += 1
+                    time.sleep(0.002)
+            except Exception as e:
+                logger.debug(f"ST3215 read_reg failed: {e}")
+            return None
 
-    def set_angle(self, angle_deg, speed=1500):
-        """Sets servo angle in degrees (0.0 to 180.0 deg mapped to 0..2048 steps)."""
-        angle_deg = max(config.SERVO_MIN_ANGLE, min(config.SERVO_MAX_ANGLE, angle_deg))
+    def set_angle(self, angle_deg, speed=1200):
+        """Sets servo angle in degrees, clamped to safe physical limits to prevent wire twisting."""
+        min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
+        max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
+        angle_deg = max(min_a, min(max_a, angle_deg))
         target_steps = int((angle_deg / 360.0) * 4096.0)
         data = [
             target_steps & 0xFF, (target_steps >> 8) & 0xFF,
@@ -105,10 +126,11 @@ class ST3215ServoDriver:
 
     def close(self):
         if self.ser:
-            try:
-                self.ser.close()
-            except Exception:
-                pass
+            with self._lock:
+                try:
+                    self.ser.close()
+                except Exception:
+                    pass
 
 
 class HardwareManager(QObject):
@@ -127,8 +149,9 @@ class HardwareManager(QObject):
         self.use_st3215 = False
         self.st3215 = None
         self.use_pigpio = False
-        self.current_angle = 45.0
-        self.target_angle = 45.0
+        base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        self.current_angle = base_angle
+        self.target_angle = base_angle
         self.sim_pot_value = 0.0
         
         # Simulation timer for mock movement
@@ -150,11 +173,14 @@ class HardwareManager(QObject):
             self.use_st3215 = True
             logger.info("Waveshare ST3215 Serial Bus Servo initialized successfully!")
             
-            # Read initial real position from magnetic encoder
+            # Read initial real position from magnetic encoder for diagnostic log
             enc_angle = self.st3215.get_angle()
             if enc_angle is not None:
-                self.current_angle = enc_angle
-                logger.info(f"Initial ST3215 encoder angle: {self.current_angle:.2f} deg")
+                logger.info(f"Initial ST3215 raw encoder angle: {enc_angle:.2f} deg")
+            
+            # Immediately position servo at calibrated base position on startup!
+            self.set_servo_angle(self.current_angle)
+            logger.info(f"Servo set to initial base position: {self.current_angle:.2f} deg")
             return
         except Exception as e:
             logger.info(f"ST3215 not available ({e}). Trying pigpio PWM servo...")
@@ -176,36 +202,41 @@ class HardwareManager(QObject):
             self.simulation_mode = True
 
     def set_servo_angle(self, angle: float):
-        """Sets the servo to a specific angle."""
-        angle = max(config.SERVO_MIN_ANGLE, min(config.SERVO_MAX_ANGLE, angle))
+        """Sets the servo to a specific angle, strictly clamped to safe bounds to prevent wire twisting."""
+        min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
+        max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
+        angle = max(min_a, min(max_a, angle))
         print(f"(SERVO_SET_POSITION) {angle:.2f}", flush=True)
         self.target_angle = angle
+        self.current_angle = angle
         
         if self.use_st3215 and self.st3215:
             try:
                 self.st3215.set_angle(angle)
-                self.current_angle = angle
             except Exception as e:
                 logger.warning(f"set_servo_angle ST3215 error: {e}")
         elif self.use_pigpio:
             try:
                 pulse = config.SERVO_MIN_PULSE + (angle / config.SERVO_MAX_ANGLE) * (config.SERVO_MAX_PULSE - config.SERVO_MIN_PULSE)
                 self.pi.set_servo_pulsewidth(self.servo_pin, pulse)
-                self.current_angle = angle
             except Exception as e:
                 logger.warning(f"set_servo_angle pigpio error: {e}")
         else:
             pass  # Handled by simulation timer
 
     def get_servo_angle(self) -> float:
-        """Returns the current angle of the servo."""
+        """Returns the current angle of the servo instantly from cache (non-blocking for UI & camera)."""
+        return self.current_angle
+
+    def get_physical_encoder_angle(self) -> float:
+        """Explicitly reads the physical magnetic encoder over serial (thread-safe)."""
         if self.use_st3215 and self.st3215:
             try:
                 enc = self.st3215.get_angle()
                 if enc is not None:
                     self.current_angle = enc
             except Exception as e:
-                logger.debug(f"get_servo_angle error: {e}")
+                logger.debug(f"get_physical_encoder_angle error: {e}")
         return self.current_angle
 
     def read_adc(self) -> list:
