@@ -6,7 +6,10 @@ import config
 
 class PIDControllerWorker(QThread):
     """
-    Background thread that calculates PID output and adjusts the servo to keep the spot on target.
+    Smooth, jitter-free background thread that calculates PID output
+    and adjusts the servo to keep the laser spot centered on target.
+    Includes low-pass filtering, derivative-on-measurement, deadbands,
+    and a slew rate limiter to prevent oscillation or jerky jumps.
     """
     # Emits (actual_x, target_x, error, new_angle) for plotting/UI updates
     pid_updated = Signal(float, float, float, float)
@@ -16,47 +19,50 @@ class PIDControllerWorker(QThread):
         self.hardware_manager = hardware_manager
         self.running = False
         
-        self.kp = 0.01
-        self.ki = 0.0
-        self.kd = 0.0
+        # Default tuning gains (empirically optimized for 15 Hz tracking)
+        self.kp = 0.0015
+        self.ki = 0.0001
+        self.kd = 0.0001
         
         self.target_x = 320.0
-        self.current_x = 320.0 # Updated from main thread via method
+        self.current_x = 320.0
+        self.filtered_x = -1.0
+        self.prev_x = -1.0
+        self.last_spot_time = 0.0
+        self.last_sent_angle = -1.0
         
         self.integral = 0.0
         self.prev_error = 0.0
         self.last_time = time.time()
         
         self.spot_lost = False
-        self.error_history = deque(maxlen=500)
         self.spot_lost_frames = 0
-        self.sweep_mode = False
-        self.sweep_dir = 1.0
-        self.stable_frames = 0
         self.current_intensity = 0.0
-        self.sweep_data = []
-        self.sweep_angle = 0.0
         
         # Sweep configuration
-        self.sweep_enabled = config.DEFAULT_SWEEP_ENABLED
-        self.sweep_timeout_sec = config.DEFAULT_SWEEP_TIMEOUT_SEC
-        self.sweep_duration_sec = config.DEFAULT_SWEEP_DURATION_SEC
-        
+        self.sweep_enabled = getattr(config, 'DEFAULT_SWEEP_ENABLED', False)
+        self.sweep_timeout_sec = getattr(config, 'DEFAULT_SWEEP_TIMEOUT_SEC', 5.0)
+        self.sweep_duration_sec = getattr(config, 'DEFAULT_SWEEP_DURATION_SEC', 3.0)
+        self.sweep_mode = False
+        self._sweep_initialized = False
+        self.sweep_data = []
+        self.sweep_angle = 0.0
+        self.error_history = deque(maxlen=300)
+
     def set_gains(self, kp: float, ki: float, kd: float):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
+        self.kp = float(kp)
+        self.ki = float(ki)
+        self.kd = float(kd)
         
     def set_target(self, target_x: float):
-        self.target_x = target_x
+        self.target_x = float(target_x)
 
     def set_sweep_enabled(self, enabled: bool):
-        self.sweep_enabled = enabled
+        self.sweep_enabled = bool(enabled)
         if not enabled:
             self.sweep_mode = False
             self._sweep_initialized = False
             self.spot_lost_frames = 0
-            self.error_history.clear()
 
     def set_sweep_timeout(self, timeout_sec: float):
         self.sweep_timeout_sec = max(0.5, float(timeout_sec))
@@ -65,123 +71,160 @@ class PIDControllerWorker(QThread):
         self.sweep_duration_sec = max(0.5, float(duration_sec))
         
     def update_current_x(self, x: float, intensity: float = 0.0):
-        """Called by the image processor signal slot to update the actual position and intensity."""
-        self.current_x = x
-        self.current_intensity = intensity
+        """Called by the image processor signal slot to update spot position."""
+        if x < 0.0 or intensity <= 0.0:
+            self.spot_lost = True
+            return
+
+        self.last_spot_time = time.time()
         self.spot_lost = False
+        self.current_intensity = intensity
+        
+        # Exponential moving average filter (alpha=0.7) to suppress subpixel noise
+        if self.filtered_x < 0:
+            self.filtered_x = x
+        else:
+            self.filtered_x = 0.70 * x + 0.30 * self.filtered_x
+        self.current_x = self.filtered_x
 
     def set_spot_lost(self, lost: bool):
-        self.spot_lost = lost
+        self.spot_lost = bool(lost)
 
     def run(self):
         self.running = True
         self.integral = 0.0
         self.prev_error = 0.0
         self.last_time = time.time()
+        self.last_sent_angle = self.hardware_manager.get_servo_angle()
+        self.prev_x = self.current_x
+        self.filtered_x = self.current_x
         self._sweep_initialized = False
         self.sweep_mode = False
         self.spot_lost_frames = 0
         self.error_history.clear()
         
+        update_hz = getattr(config, 'PID_UPDATE_RATE_HZ', 15)
+        loop_dt = 1.0 / max(1, update_hz)
+        
+        min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
+        max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
+        base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        
         while self.running:
             current_time = time.time()
             dt = current_time - self.last_time
             if dt <= 0.0:
-                dt = 0.001
+                dt = loop_dt
             
-            # Calculate Error
-            error = self.target_x - self.current_x
+            # Watchdog: if no spot coordinate received in 0.35s, flag as lost
+            if current_time - self.last_spot_time > 0.35:
+                self.spot_lost = True
+                
+            current_angle = self.hardware_manager.get_servo_angle()
+            new_angle = current_angle
             
+            # --- Scenario 1: Spot is Lost ---
             if self.spot_lost:
                 self.spot_lost_frames += 1
-            else:
-                self.spot_lost_frames = 0
+                self.integral = 0.0  # Reset integrator when spot is missing
+                self.prev_x = self.current_x
                 
-            self.error_history.append(error)
-            
-            # Run at configured rate (default 15 Hz to save CPU and ensure zero camera lag)
-            update_hz = getattr(config, 'PID_UPDATE_RATE_HZ', 15)
-            loop_dt = 1.0 / max(1, update_hz)
-            
-            # Check for Sweep triggers (if enabled)
-            if self.sweep_enabled and not self.sweep_mode:
-                timeout_frames = int(self.sweep_timeout_sec / loop_dt)
-                trigger_sweep = False
-                if self.spot_lost_frames > timeout_frames:
-                    trigger_sweep = True
-                elif len(self.error_history) >= timeout_frames and np.std(self.error_history) > 100.0:
-                    trigger_sweep = True
+                # Check for sweep triggers if explicitly enabled
+                if self.sweep_enabled:
+                    timeout_frames = int(self.sweep_timeout_sec / loop_dt)
+                    if self.spot_lost_frames > timeout_frames and not self.sweep_mode:
+                        self.sweep_mode = True
+                        self._sweep_initialized = False
+                
+                if self.sweep_mode:
+                    sweep_span = getattr(config, 'DEFAULT_SWEEP_RANGE_DEG', 25.0)
+                    min_sweep = max(min_a, base_angle - sweep_span)
+                    max_sweep = min(max_a, base_angle + sweep_span)
                     
-                if trigger_sweep:
-                    self.sweep_mode = True
-                    self._sweep_initialized = False
-                    self.error_history.clear()
-                    self.integral = 0.0
-            
-            current_angle = self.hardware_manager.get_servo_angle()
-            base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
-            min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
-            max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
-            
-            if self.sweep_mode:
-                sweep_span = getattr(config, 'DEFAULT_SWEEP_RANGE_DEG', 25.0)
-                min_sweep = max(min_a, base_angle - sweep_span)
-                max_sweep = min(max_a, base_angle + sweep_span)
-                
-                if not self._sweep_initialized:
-                    self._sweep_initialized = True
-                    self.sweep_angle = min_sweep
-                    self.sweep_data = []
-                    self.hardware_manager.set_servo_angle(min_sweep)
-                    for _ in range(5):
-                        if not self.running or not self.sweep_mode:
-                            break
-                        time.sleep(loop_dt)
-                    
-                step_increment = ((max_sweep - min_sweep) / max(0.5, self.sweep_duration_sec)) * loop_dt
-                self.sweep_angle += step_increment
-                
-                if self.sweep_angle <= max_sweep:
-                    self.hardware_manager.set_servo_angle(self.sweep_angle)
-                    intensity = self.current_intensity if not self.spot_lost else 0.0
-                    self.sweep_data.append((self.sweep_angle, intensity))
-                    new_angle = self.sweep_angle
-                else:
-                    if self.sweep_data:
-                        best_angle, max_int = max(self.sweep_data, key=lambda x: x[1])
-                        target_ret = best_angle if max_int > 5.0 else base_angle
+                    if not self._sweep_initialized:
+                        self._sweep_initialized = True
+                        self.sweep_angle = min_sweep
+                        self.sweep_data = []
+                        self.hardware_manager.set_servo_angle(min_sweep)
+                        self.last_sent_angle = min_sweep
                     else:
-                        target_ret = base_angle
-                    self.hardware_manager.set_servo_angle(target_ret)
-                    new_angle = target_ret
-                    self.sweep_mode = False
-                    self._sweep_initialized = False
-                    self.error_history.clear()
-                    self.spot_lost_frames = 0
+                        step_inc = ((max_sweep - min_sweep) / max(0.5, self.sweep_duration_sec)) * loop_dt
+                        self.sweep_angle += step_inc
+                        if self.sweep_angle <= max_sweep:
+                            self.hardware_manager.set_servo_angle(self.sweep_angle)
+                            self.last_sent_angle = self.sweep_angle
+                            new_angle = self.sweep_angle
+                        else:
+                            self.hardware_manager.set_servo_angle(base_angle)
+                            self.last_sent_angle = base_angle
+                            new_angle = base_angle
+                            self.sweep_mode = False
+                            self._sweep_initialized = False
+                            self.spot_lost_frames = 0
+                else:
+                    # Not sweeping: if lost for > 3.0 seconds, gently return to base angle
+                    lost_limit_frames = int(3.0 / loop_dt)
+                    if self.spot_lost_frames > lost_limit_frames:
+                        if abs(current_angle - base_angle) > 0.2:
+                            drift_step = 0.15 if base_angle > current_angle else -0.15
+                            new_angle = current_angle + drift_step
+                            self.hardware_manager.set_servo_angle(new_angle)
+                            self.last_sent_angle = new_angle
+                
+                self.pid_updated.emit(-1.0, self.target_x, 0.0, new_angle)
+                self.last_time = current_time
+                time.sleep(loop_dt)
+                continue
+                
+            # --- Scenario 2: Spot is Actively Tracked ---
+            self.spot_lost_frames = 0
+            self.sweep_mode = False
+            self._sweep_initialized = False
+            
+            raw_error = self.target_x - self.current_x
+            
+            # Deadband: +/- 3.5 pixels deadband completely eliminates steady-state servo chatter
+            if abs(raw_error) <= 3.5:
+                error = 0.0
+                step = 0.0
             else:
-                # Proportional
+                error = raw_error
+                
+                # Proportional Term
                 p_term = self.kp * error
                 
-                # Integral with anti-windup
-                self.integral += error * dt
-                self.integral = max(-100.0, min(100.0, self.integral))
+                # Integral Term with Anti-Windup (only accumulates near target)
+                if abs(error) < 60.0:
+                    self.integral += error * dt
+                    self.integral = max(-30.0, min(30.0, self.integral))
+                else:
+                    self.integral = 0.0
                 i_term = self.ki * self.integral
                 
-                # Derivative
-                derivative = (error - self.prev_error) / dt
+                # Derivative on Measurement (opposes rapid velocity to prevent overshoot)
+                if self.prev_x > 0.0:
+                    derivative = -(self.current_x - self.prev_x) / dt
+                else:
+                    derivative = 0.0
                 d_term = self.kd * derivative
                 
-                output = p_term + i_term + d_term
-                output = max(-2.0, min(2.0, output))
+                step = p_term + i_term + d_term
                 
-                new_angle = max(min_a, min(max_a, current_angle + output))
-                if abs(new_angle - current_angle) >= 0.08:
+                # Slew Rate Limiter: clamp step to max 0.25 deg per tick (~3.75 deg/s max)
+                max_step = 0.25
+                step = max(-max_step, min(max_step, step))
+                
+                new_angle = max(min_a, min(max_a, current_angle + step))
+                
+                # Only send command to servo if change exceeds mechanical threshold (0.05 deg)
+                if abs(new_angle - self.last_sent_angle) >= 0.05:
                     self.hardware_manager.set_servo_angle(new_angle)
-
-            self.pid_updated.emit(self.current_x, self.target_x, error, new_angle)
-            
+                    self.last_sent_angle = new_angle
+                    
+            self.prev_x = self.current_x
             self.prev_error = error
             self.last_time = current_time
+            self.pid_updated.emit(self.current_x, self.target_x, raw_error, new_angle)
             time.sleep(loop_dt)
             
     def stop(self):

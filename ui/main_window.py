@@ -248,11 +248,17 @@ class MainWindow(QMainWindow):
             "                # Draw tracking crosshair\n"
             "                frame = draw_cross_on_location(frame, x, y, size=100)\n"
             "                binary = draw_cross_on_location(binary, x, y, size=100)\n"
+            "            else:\n"
+            "                send_location(-1.0, -1.0)\n"
+            "                set_detected_spot(-1.0, -1.0, 0.0)\n"
+            "        else:\n"
+            "            send_location(-1.0, -1.0)\n"
+            "            set_detected_spot(-1.0, -1.0, 0.0)\n"
             "                \n"
             "        # Display stacked original and binary output (forms 16x18 display layout)\n"
             "        send_to_screen(frame, binary)\n"
             "        \n"
-            "    time.sleep(0.1)\n"
+            "    time.sleep(0.01)\n"
         )
         
         # Syntax highlighter
@@ -453,9 +459,9 @@ class MainWindow(QMainWindow):
         pid_group = QGroupBox("PID Tuning")
         pid_layout = QVBoxLayout(pid_group)
         
-        self.slider_kp = FloatParameterSlider("Kp", 0.0, 1.0, 0.002, 4)
-        self.slider_ki = FloatParameterSlider("Ki", 0.0, 1.0, 0.0, 4)
-        self.slider_kd = FloatParameterSlider("Kd", 0.0, 1.0, 0.001, 4)
+        self.slider_kp = FloatParameterSlider("Kp", 0.0, 0.0080, 0.0015, 4)
+        self.slider_ki = FloatParameterSlider("Ki", 0.0, 0.0020, 0.0001, 5)
+        self.slider_kd = FloatParameterSlider("Kd", 0.0, 0.0010, 0.0001, 5)
         
         self.slider_target_x = ParameterSlider("Target X (px)", 0, 640, 320)
         
@@ -738,6 +744,15 @@ class MainWindow(QMainWindow):
 
     @Slot(float, float, float)
     def update_spot_from_script(self, x, y, intensity):
+        if x < 0.0 or y < 0.0 or intensity <= 0.0:
+            self.current_spot_x = None
+            self.current_spot_y = None
+            self.lbl_spot_x.setText("X: --- px")
+            self.lbl_spot_y.setText("Y: --- px")
+            if self.pid_worker.running:
+                self.pid_worker.update_current_x(-1.0, 0.0)
+            return
+
         self.current_spot_x = x
         self.current_spot_y = y
         self.lbl_spot_x.setText(f"X: {x:.1f} px")
