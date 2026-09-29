@@ -44,12 +44,16 @@ class CameraDisplayWidget(QLabel):
 
     def _update_display(self):
         if self._current_pixmap and not self._current_pixmap.isNull():
-            scaled_pixmap = self._current_pixmap.scaled(
-                self.size(), 
-                Qt.KeepAspectRatio, 
-                Qt.SmoothTransformation
-            )
-            self.setPixmap(scaled_pixmap)
+            target_size = self.size()
+            if target_size.width() > 10 and target_size.height() > 10:
+                scaled_pixmap = self._current_pixmap.scaled(
+                    target_size, 
+                    Qt.KeepAspectRatio, 
+                    Qt.FastTransformation
+                )
+                self.setPixmap(scaled_pixmap)
+            else:
+                self.setPixmap(self._current_pixmap)
 
 class ParameterSlider(QWidget):
     """

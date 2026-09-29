@@ -46,8 +46,14 @@ class PIDControllerWorker(QThread):
         self.sweep_mode = False
         self._sweep_initialized = False
         self.sweep_data = []
-        self.sweep_angle = 0.0
+        self.update_hz = getattr(config, 'PID_UPDATE_RATE_HZ', 15)
+        self.loop_dt = 1.0 / max(1, self.update_hz)
         self.error_history = deque(maxlen=300)
+
+    def set_rate_hz(self, hz: float):
+        """Dynamically adjusts PID loop frequency in Hz. Responds immediately."""
+        self.update_hz = max(1.0, min(100.0, float(hz)))
+        self.loop_dt = 1.0 / self.update_hz
 
     def set_gains(self, kp: float, ki: float, kd: float):
         self.kp = float(kp)
@@ -103,14 +109,12 @@ class PIDControllerWorker(QThread):
         self.spot_lost_frames = 0
         self.error_history.clear()
         
-        update_hz = getattr(config, 'PID_UPDATE_RATE_HZ', 15)
-        loop_dt = 1.0 / max(1, update_hz)
-        
         min_a = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
         max_a = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
         base_angle = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
         
         while self.running:
+            loop_dt = getattr(self, 'loop_dt', 0.0667)
             current_time = time.time()
             dt = current_time - self.last_time
             if dt <= 0.0:
@@ -227,13 +231,16 @@ class PIDControllerWorker(QThread):
             self.pid_updated.emit(self.current_x, self.target_x, raw_error, new_angle)
             time.sleep(loop_dt)
             
+        # Clean background exit: reset servo to base
+        base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
+        self.hardware_manager.set_servo_angle(base)
+            
     def stop(self):
         self.running = False
         self.sweep_mode = False
         self._sweep_initialized = False
         self.spot_lost_frames = 0
         self.error_history.clear()
-        self.wait()
-        # Return safely to calibrated base position
+        # Non-blocking stop: return immediately without freezing GUI thread!
         base = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 80.0)
         self.hardware_manager.set_servo_angle(base)

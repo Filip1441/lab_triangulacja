@@ -1,5 +1,6 @@
 import os
 import math
+import threading
 from datetime import datetime
 import numpy as np
 try:
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self.script_runner = None
         self._autorun_pending = False
         self.settings_dialog = None
+        self.new_frame_event = threading.Event()
         
         # Internal State
         self.camera_fov = config.DEFAULT_FOV_DEG
@@ -464,11 +466,14 @@ class MainWindow(QMainWindow):
         self.slider_kd = FloatParameterSlider("Kd", 0.0, 0.0010, 0.0001, 5)
         
         self.slider_target_x = ParameterSlider("Target X (px)", 0, 640, 320)
+        default_rate = int(getattr(config, 'PID_UPDATE_RATE_HZ', 15))
+        self.slider_pid_rate = ParameterSlider("PID Rate (Hz)", 1, 50, default_rate)
         
         pid_layout.addWidget(self.slider_kp)
         pid_layout.addWidget(self.slider_ki)
         pid_layout.addWidget(self.slider_kd)
         pid_layout.addWidget(self.slider_target_x)
+        pid_layout.addWidget(self.slider_pid_rate)
         
         self.btn_toggle_pid = QPushButton("Start PID Tracking")
         self.btn_toggle_pid.setCheckable(True)
@@ -530,6 +535,8 @@ class MainWindow(QMainWindow):
         self.slider_ki.spinbox.valueChanged.connect(self.update_pid_gains)
         self.slider_kd.spinbox.valueChanged.connect(self.update_pid_gains)
         self.slider_target_x.slider.valueChanged.connect(self.update_pid_target)
+        self.slider_pid_rate.slider.valueChanged.connect(self.update_pid_rate)
+        self.slider_pid_rate.spinbox.valueChanged.connect(self.update_pid_rate)
         self.btn_toggle_pid.toggled.connect(self.toggle_pid)
         self.pid_worker.pid_updated.connect(self.update_pid_plot)
 
@@ -629,6 +636,7 @@ class MainWindow(QMainWindow):
     @Slot(np.ndarray)
     def process_and_display_frame(self, frame: np.ndarray):
         self.current_raw_frame = frame
+        self.new_frame_event.set()
         
         # Always update Stage 2 base/angle dashboard labels in real-time
         self.lbl_s2_base.setText(f"B (Base Distance): {self.schematic.base_distance:.1f} mm")
@@ -907,6 +915,10 @@ class MainWindow(QMainWindow):
         kd = self.slider_kd.value()
         self.pid_worker.set_gains(kp, ki, kd)
 
+    def update_pid_rate(self):
+        hz = self.slider_pid_rate.value()
+        self.pid_worker.set_rate_hz(hz)
+
     def update_pid_target(self):
         self.pid_worker.set_target(self.slider_target_x.value())
 
@@ -914,6 +926,7 @@ class MainWindow(QMainWindow):
         if checked:
             self.btn_toggle_pid.setText("Stop PID Tracking")
             self.update_pid_gains()
+            self.update_pid_rate()
             self.update_pid_target()
             self.pid_worker.start()
         else:
@@ -922,6 +935,10 @@ class MainWindow(QMainWindow):
 
     @Slot(float, float, float, float)
     def update_pid_plot(self, actual, target, error, new_angle):
+        # Only spend CPU redrawing plots if Stage 3 is currently visible
+        if self.stack.currentIndex() != 3:
+            return
+            
         self.plot_data_actual = np.roll(self.plot_data_actual, -1)
         self.plot_data_actual[-1] = actual
         
@@ -965,6 +982,8 @@ class MainWindow(QMainWindow):
             pass
         self.camera_worker.stop()
         self.pid_worker.stop()
+        if self.pid_worker.isRunning():
+            self.pid_worker.wait(500)
         if self.script_runner and self.script_runner.isRunning():
             self.script_runner.stop()
         self.hardware.cleanup()

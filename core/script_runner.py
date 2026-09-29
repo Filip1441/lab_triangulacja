@@ -46,15 +46,13 @@ class ScriptRunner(QThread):
             self.finished_signal.emit()
             return
         
-        # Line-by-line trace function to forcefully terminate thread loops when self.running is False
-        def trace_func(frame, event, arg):
+        def capture_frame():
             if not self.running:
                 raise InterruptedError("Script stopped by user")
-            return trace_func
-            
-        sys.settrace(trace_func)
-        
-        def capture_frame():
+            # Synchronize with camera frame arrival (max 40ms timeout)
+            if hasattr(self.main_window, 'new_frame_event'):
+                self.main_window.new_frame_event.wait(timeout=0.04)
+                self.main_window.new_frame_event.clear()
             return self.main_window.current_raw_frame
             
         def set_exposure(val):
@@ -211,7 +209,6 @@ class ScriptRunner(QThread):
             tb = traceback.format_exc()
             self.log_signal.emit(f"\n[ERROR] Script Exception:\n{tb}")
         finally:
-            sys.settrace(None) # disable trace
             sys.stdout = sys.__stdout__
             sys.stderr = sys.__stderr__
             self.running = False
@@ -219,8 +216,9 @@ class ScriptRunner(QThread):
             
     def stop(self):
         self.running = False
-        # Wait up to 500ms for thread to exit cleanly
-        if not self.wait(500):
-            # Forcefully terminate if it's stuck in a tight loop
+        if hasattr(self.main_window, 'new_frame_event'):
+            self.main_window.new_frame_event.set()
+        # Wait up to 200ms for thread to exit cleanly
+        if not self.wait(200):
             self.terminate()
-            self.wait()
+            self.wait(100)
