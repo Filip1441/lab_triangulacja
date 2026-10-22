@@ -542,6 +542,8 @@ class MainWindow(QMainWindow):
 
     def switch_stage(self, index: int):
         self.stack.setCurrentIndex(index)
+        self.schematic.show_distance = (index != 2)   # Stage 2: the distance is to be calculated by the students
+        self.schematic.update()
         if index == 4:
             self.export_page.refresh()  # results are packed automatically when the tab opens
         btn = self.nav_group.button(index)

@@ -81,6 +81,7 @@ class InteractiveSchematicWidget(QWidget):
         self.fov_deg = getattr(config, 'DEFAULT_FOV_DEG', 30.0)
         self._scale = None           # px per mm, kept stable between frames
         self._range = None           # distance range (mm) the vertical axis currently shows
+        self.show_distance = True    # False in Stage 2: students must calculate Z themselves
         self._z_ema = None           # smoothed triangulated distance
         self._z_time = 0.0
         self._breaking = False       # break state with hysteresis, so the cut does not flicker
@@ -231,15 +232,16 @@ class InteractiveSchematicWidget(QWidget):
         seg_top, seg_bottom = scr.bottom(), (y2 if has_break else cam_y - 18.0)
         if has_break and (y1 - cam_y) * -1 > (seg_bottom - seg_top):   # lower part is the longer segment
             seg_top, seg_bottom = y1, cam_y - 18.0
-        label = f"\u2195 {Z:.0f} mm"
-        painter.setFont(QFont("Arial", 10, QFont.Bold))
-        lw = painter.fontMetrics().horizontalAdvance(label) + 12
-        chip = QRectF(cam_x - lw - 6, (seg_top + seg_bottom) / 2.0 - 11, lw, 22)
-        painter.setBrush(QColor(0, 0, 0, 170))
-        painter.setPen(QPen(QColor("#ffb84d"), 1))
-        painter.drawRoundedRect(chip, 4, 4)
-        painter.setPen(QColor("#ffd699"))
-        painter.drawText(chip, Qt.AlignCenter, label)
+        if self.show_distance:
+            label = f"\u2195 {Z:.0f} mm"
+            painter.setFont(QFont("Arial", 10, QFont.Bold))
+            lw = painter.fontMetrics().horizontalAdvance(label) + 12
+            chip = QRectF(cam_x - lw - 6, (seg_top + seg_bottom) / 2.0 - 11, lw, 22)
+            painter.setBrush(QColor(0, 0, 0, 170))
+            painter.setPen(QPen(QColor("#ffb84d"), 1))
+            painter.drawRoundedRect(chip, 4, 4)
+            painter.setPen(QColor("#ffd699"))
+            painter.drawText(chip, Qt.AlignCenter, label)
 
         # Spot on the screen. hit_x_phys is where the beam meets the screen plane; when a spot is detected, Z was
         # computed from it, so this is exactly the detected position, and the beam stays a true straight line.
