@@ -147,7 +147,7 @@ class InteractiveSchematicWidget(QWidget):
         
         if has_break:
             # Draw lower part
-            break_start_y = cam_y - (visual_dist * scale * 0.4)
+            break_start_y = cam_y - (visual_dist * scale_y * 0.4)
             painter.drawLine(int(cam_x), int(cam_y), int(cam_x), int(break_start_y))
             
             # Draw break symbol "..."
