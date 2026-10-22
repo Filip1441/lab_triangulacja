@@ -9,7 +9,7 @@ import config
 
 logger = logging.getLogger(__name__)
 
-MIN_SPOT_BRIGHTNESS = 120
+MIN_SPOT_BRIGHTNESS = 200  # the laser saturates the sensor at the app's short exposure; weaker blobs are glare
 
 
 def find_spot(frame):
@@ -61,6 +61,7 @@ class CalibrationWorker(QThread):
         self.base_mm = float(base_mm)
         self.wall_mm = float(wall_mm)
         self._stop = False
+        self.debug = []
 
     def stop(self):
         self._stop = True
@@ -129,8 +130,12 @@ class CalibrationWorker(QThread):
         angles, xs = [], []
         a = max(min_p, a0 - 2.0)
         while a <= min(max_p, a0 + 2.0) and not self._stop:
-            enc = self._move(a, 0.45)
+            enc = self._move(a, 0.6)
             m = self._measure()
+            enc2 = self.hardware.get_physical_encoder_angle()  # servo may still be creeping: average before/after
+            if enc2 is not None and enc is not None:
+                enc = (enc + enc2) / 2.0
+            self.debug.append((a, enc, m[0] if m else None))
             if m and 0.05 * frame_w < m[0] < 0.95 * frame_w:
                 angles.append(enc)
                 xs.append(m[0])
@@ -140,11 +145,19 @@ class CalibrationWorker(QThread):
         if len(angles) < 6:
             return self.failed.emit(f"Too few valid points ({len(angles)}). Spot unstable or out of view.")
 
+        angles, xs = np.array(angles), np.array(xs)
         k, b = np.polyfit(angles, xs, 1)
+        for _ in range(3):  # drop outliers (servo creep, glare) and refit
+            res = np.abs(xs - (k * angles + b))
+            keep = res <= max(3.0, 2.5 * float(np.median(res)))
+            if keep.all() or keep.sum() < 6:
+                break
+            angles, xs = angles[keep], xs[keep]
+            k, b = np.polyfit(angles, xs, 1)
         if abs(k) < 5:
             return self.failed.emit("Spot does not move with the servo (slope ~0). Is the laser mounted on the servo?")
-        pred = k * np.array(angles) + b
-        rms = float(np.sqrt(np.mean((np.array(xs) - pred) ** 2)))
+        pred = k * angles + b
+        rms = float(np.sqrt(np.mean((xs - pred) ** 2)))
         center_phys = (cx - b) / k
         f_px = abs(k) * 180.0 / math.pi
         fov = 2.0 * math.degrees(math.atan(cx / f_px))
