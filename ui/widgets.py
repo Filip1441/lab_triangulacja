@@ -18,6 +18,13 @@ class CameraDisplayWidget(QLabel):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background-color: #121212; border: 1px solid #333; border-radius: 4px;")
         self._current_pixmap = None
+        self._aspect = 640.0 / 966.0   # width/height of the shown image (stacked original + mask by default)
+
+    def _fit_width(self):
+        """Caps the widget width to the image's aspect ratio, so there are no side bars and the schematic gets the room."""
+        want = int(self.height() * self._aspect) + 2
+        if want > 60 and abs(self.maximumWidth() - want) > 1:
+            self.setMaximumWidth(want)
 
     @Slot(np.ndarray)
     def update_frame(self, frame: np.ndarray):
@@ -36,10 +43,14 @@ class CameraDisplayWidget(QLabel):
             qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_Grayscale8).copy()
 
         self._current_pixmap = QPixmap.fromImage(qimg)
+        if qimg.height() > 0:
+            self._aspect = qimg.width() / qimg.height()
+        self._fit_width()
         self._update_display()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._fit_width()
         self._update_display()
 
     def _update_display(self):

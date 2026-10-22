@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         visual_layout.setSpacing(8)
         self.schematic = InteractiveSchematicWidget()
         self.schematic.setMinimumHeight(180)
-        self.schematic.setMaximumWidth(360)
+        self.schematic.setMaximumWidth(1200)
         
         # Right visual column (Spot Position widget + Camera widget)
         right_column = QVBoxLayout()
