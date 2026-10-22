@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         visual_layout.setSpacing(8)
         self.schematic = InteractiveSchematicWidget()
         self.schematic.setMinimumHeight(180)
-        self.schematic.setMaximumWidth(280)
+        self.schematic.setMaximumWidth(360)
         
         # Right visual column (Spot Position widget + Camera widget)
         right_column = QVBoxLayout()
@@ -729,6 +729,7 @@ class MainWindow(QMainWindow):
             
         self.current_spot_x = None
         self.current_spot_y = None
+        self.schematic.set_spot(None, self.camera_fov)
         
         if self.stack.currentIndex() == 1 and self.tabs_s1.currentIndex() == 1:
             self.lbl_live_distance.setText("Run script to detect spot")
@@ -825,6 +826,7 @@ class MainWindow(QMainWindow):
         if x < 0.0 or y < 0.0 or intensity <= 0.0:
             self.current_spot_x = None
             self.current_spot_y = None
+            self.schematic.set_spot(None, self.camera_fov)
             self.lbl_spot_x.setText("X: --- px")
             self.lbl_spot_y.setText("Y: --- px")
             if self.pid_worker.running:
@@ -833,6 +835,7 @@ class MainWindow(QMainWindow):
 
         self.current_spot_x = x
         self.current_spot_y = y
+        self.schematic.set_spot(x, self.camera_fov)
         self.lbl_spot_x.setText(f"X: {x:.1f} px")
         self.lbl_spot_y.setText(f"Y: {y:.1f} px")
         

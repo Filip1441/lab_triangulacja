@@ -2,7 +2,7 @@ import logging
 import math
 from PySide6.QtWidgets import QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDoubleSpinBox, QLabel
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF
-from PySide6.QtCore import Qt, QRect, QPointF, Signal
+from PySide6.QtCore import Qt, QRect, QRectF, QPointF, Signal
 
 import config
 
@@ -74,6 +74,9 @@ class InteractiveSchematicWidget(QWidget):
         self.base_distance = getattr(config, 'DEFAULT_BASE_DISTANCE_MM', 70.0)
         self.angle_deg = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)
         self.object_distance = 200.0 # Will be updated by MainWindow
+        self.spot_x = None           # spot pixel detected by the camera (None = not detected)
+        self.fov_deg = getattr(config, 'DEFAULT_FOV_DEG', 30.0)
+        self._scale = None           # px per mm, kept stable between frames
         
         # Hitboxes for clicking
         self.rect_base = QRect()
@@ -83,7 +86,7 @@ class InteractiveSchematicWidget(QWidget):
         self.col_bg = QColor("#1e1e1e")
         self.col_cam = QColor("#aaaaaa")
         self.col_laser = QColor("#00aaff")
-        self.col_beam = QColor(0, 255, 0, 180) # Green dashed
+        self.col_beam = QColor(255, 40, 40, 220) # Red dashed (the laser is red)
         self.col_cam_axis = QColor(150, 150, 150, 180) # Gray dashed
         self.col_obj = QColor("#ff8800")
         self.col_text_bg = QColor(0, 0, 0, 150)
@@ -93,6 +96,11 @@ class InteractiveSchematicWidget(QWidget):
         self.angle_deg = angle
         self.object_distance = obj_dist
         self.update()
+
+    def set_spot(self, spot_x, fov_deg):
+        """Pixel position of the spot as detected by the camera (None = not detected) and the camera FOV."""
+        self.spot_x = spot_x
+        self.fov_deg = float(fov_deg)
 
     def paintEvent(self, event):
         # Never let a drawing error blank the schematic: always close the painter, log, and repaint next frame.
@@ -104,123 +112,174 @@ class InteractiveSchematicWidget(QWidget):
         finally:
             painter.end()
 
+    @staticmethod
+    def _cot(deg):
+        """cot(alpha) clamped so that alpha near 0/180 deg stays finite."""
+        r = math.radians(deg)
+        return max(-1000.0, min(1000.0, math.cos(r) / math.sin(r))) if abs(math.sin(r)) > 1e-3 else (1000.0 if math.cos(r) > 0 else -1000.0)
+
+    def _distance_mm(self):
+        """Distance drawn: triangulated from the detected spot and the servo angle, else the set object distance."""
+        if self.spot_x is not None:
+            tan_theta = ((self.spot_x - 320.0) / 320.0) * math.tan(math.radians(self.fov_deg / 2.0))
+            denom = self._cot(self.angle_deg) + tan_theta
+            if denom > 1e-4:
+                return max(100.0, min(50000.0, self.base_distance / denom))
+        return max(100.0, min(50000.0, self.object_distance))
+
     def _paint(self, painter):
         painter.setRenderHint(QPainter.Antialiasing)
-        
-        w = self.width()
-        h = self.height()
-        
-        # Clear background
+        w, h = self.width(), self.height()
         painter.fillRect(0, 0, w, h, self.col_bg)
-        
-        # Dynamic horizontal scaling: ensure baseline fits with comfortable margins
-        pad_x = 32.0
+
+        B = max(1.0, self.base_distance)
+        Z = self._distance_mm()
+        cot = self._cot(self.angle_deg)
+        fov_half_tan = math.tan(math.radians(self.fov_deg / 2.0))
+        field_w = 2.0 * Z * fov_half_tan            # width of what the camera sees at distance Z (mm)
+
+        # One scale (px/mm) for x and y, so the beam angle on screen is the real angle.
+        pad_x = 10.0
         avail_w = max(80.0, w - 2 * pad_x)
-        scale_x = max(0.02, min(1.2, avail_w / max(50.0, self.base_distance)))  # shrinks to fit large B
-        base_span = self.base_distance * scale_x
-        cam_x = (w - base_span) / 2.0
-        laser_x = cam_x + base_span
-        
-        # Position Camera & Laser comfortably above the bottom (leaves ~25px breathing room below base label)
-        cam_y = h - 55.0
-        laser_y = cam_y
-        
-        # Available vertical space for the object
-        top_margin = 40.0
-        avail_h = max(120.0, cam_y - top_margin)
-        scale_y = max(0.5, min(1.4, avail_h / 320.0))
-        
-        # Visual distance mapping with break line if too far
-        max_no_break_dist = (avail_h - 20.0) / scale_y
-        visual_dist = self.object_distance
-        has_break = False
-        if self.object_distance > max_no_break_dist:
-            visual_dist = max_no_break_dist - 25.0
-            has_break = True
-            
-        obj_y = cam_y - (visual_dist * scale_y)
-        
-        # Calculate physical intersection
-        rad = math.radians(self.angle_deg)
-        if abs(math.tan(rad)) > 0.001:
-            hit_x_phys = self.base_distance - (self.object_distance / math.tan(rad))
-        else:
-            hit_x_phys = self.base_distance - (10000.0 if self.angle_deg < 90 else -10000.0)
-            
-        # Visual position of the hit spot on screen
-        hit_x = cam_x + (hit_x_phys * scale_x)
-        hit_x_draw = max(-10000, min(10000, hit_x))
-        
-        # 1. Draw camera axis (dashed gray) with optional break
-        pen_cam_axis = QPen(self.col_cam_axis, 2, Qt.DashLine)
-        painter.setPen(pen_cam_axis)
-        
+        fw = max(field_w, 20.0)
+        # Scale so that label column (left), screen and laser box all fit in the widget width
+        s_target = max(0.02, min(8.0, (avail_w - 126.0) / B, (avail_w - 8.0) / fw, (avail_w - 26.0) / (fw / 2.0 + B)))
+        if self._scale is None or abs(s_target - self._scale) / self._scale > 0.04:  # hysteresis: no zoom jitter
+            self._scale = s_target
+        s = self._scale
+
+        cam_y = h - 62.0
+        top = 24.0
+        screen_h = 46.0
+        screen_w = max(90.0, min(avail_w, field_w * s))
+        left_px = max(screen_w / 2.0 + 4.0, 104.0)      # room for the distance label left of the axis
+        right_px = max(screen_w / 2.0 + 4.0, B * s + 22.0)
+        cam_x = (w - (left_px + right_px)) / 2.0 + left_px
+        laser_x = cam_x + B * s
+        obj_y_min = top + screen_h / 2.0
+        span_px = cam_y - obj_y_min - screen_h / 2.0 - 6.0   # vertical room between boxes and screen
+
+        # Vertical mapping with an optional break: the middle of the path is cut out and replaced by a gap.
+        lower_px, gap_px, upper_min = 0.30 * span_px, 34.0, 40.0
+        upper_max = max(upper_min, span_px - lower_px - gap_px)
+        has_break = Z * s > lower_px + gap_px + upper_min
         if has_break:
-            # Draw lower part
-            break_start_y = cam_y - (visual_dist * scale_y * 0.4)
-            painter.drawLine(int(cam_x), int(cam_y), int(cam_x), int(break_start_y))
-            
-            # Draw break symbol "..."
-            painter.setPen(Qt.white)
-            painter.setFont(QFont("Arial", 12, QFont.Bold))
-            painter.drawText(int(cam_x - 10), int(break_start_y - 10), "...")
-            
-            # Draw upper part
-            painter.setPen(pen_cam_axis)
-            break_end_y = break_start_y - 20.0
-            painter.drawLine(int(cam_x), int(break_end_y), int(cam_x), int(obj_y - 20))
+            # The screen still moves with Z: the visible upper part grows smoothly with distance (not to scale).
+            upper_px = upper_min + (upper_max - upper_min) * (1.0 - math.exp(-Z / 1500.0))
+            upper_px = min(upper_px, Z * s - lower_px - 4.0)
+            z1 = lower_px / s
+            z2 = Z - upper_px / s
+            y1 = cam_y - lower_px                     # top of the lower part
+            y2 = y1 - gap_px                          # bottom of the upper part
+            def y_of(z):
+                return cam_y - z * s if z <= z1 else y2 - (z - z2) * s
         else:
-            painter.drawLine(int(cam_x), int(cam_y), int(cam_x), int(obj_y - 20))
-            
-        # 2. Draw Object
-        painter.setBrush(self.col_obj)
+            z1 = z2 = None
+            y1 = y2 = None
+            def y_of(z):
+                return cam_y - z * s
+        obj_y = y_of(Z)
+        def x_of(z):
+            return max(-5000.0, min(5000.0, cam_x + (B - z * cot) * s))
+
+        # Camera axis (dashed gray)
+        painter.setPen(QPen(self.col_cam_axis, 2, Qt.DashLine))
+        if has_break:
+            painter.drawLine(QPointF(cam_x, cam_y), QPointF(cam_x, y1))
+            painter.drawLine(QPointF(cam_x, y2), QPointF(cam_x, obj_y))
+        else:
+            painter.drawLine(QPointF(cam_x, cam_y), QPointF(cam_x, obj_y))
+
+        # Screen = what the camera sees at distance Z; the spot lands where the camera detected it.
+        scr = QRectF(cam_x - screen_w / 2.0, obj_y - screen_h / 2.0, screen_w, screen_h)
+        painter.setBrush(QColor(255, 136, 0, 215))
+        painter.setPen(QPen(QColor("#ffb84d"), 2))
+        painter.drawRoundedRect(scr, 4, 4)
+        painter.setPen(QPen(QColor(0, 0, 0, 110), 1))
+        painter.drawLine(QPointF(cam_x, scr.top() + 3), QPointF(cam_x, scr.bottom() - 3))   # image centre (x = 320 px)
+        for k in (-1.0, -0.5, 0.5, 1.0):
+            tx = cam_x + k * screen_w / 2.0 * 0.98
+            painter.drawLine(QPointF(tx, scr.bottom() - 8), QPointF(tx, scr.bottom() - 3))
+
+        # Distance label on the camera axis (the segment joining camera and screen)
+        seg_top, seg_bottom = scr.bottom(), (y2 if has_break else cam_y - 18.0)
+        if has_break and (y1 - cam_y) * -1 > (seg_bottom - seg_top):   # lower part is the longer segment
+            seg_top, seg_bottom = y1, cam_y - 18.0
+        label = f"\u2195 {Z:.0f} mm"
+        painter.setFont(QFont("Arial", 10, QFont.Bold))
+        lw = painter.fontMetrics().horizontalAdvance(label) + 12
+        chip = QRectF(cam_x - lw - 6, (seg_top + seg_bottom) / 2.0 - 11, lw, 22)
+        painter.setBrush(QColor(0, 0, 0, 170))
+        painter.setPen(QPen(QColor("#ffb84d"), 1))
+        painter.drawRoundedRect(chip, 4, 4)
+        painter.setPen(QColor("#ffd699"))
+        painter.drawText(chip, Qt.AlignCenter, label)
+
+        # Spot position on the screen
+        hit_x_phys = B - Z * cot
+        if self.spot_x is not None:
+            spot_sx = cam_x + ((self.spot_x - 320.0) / 320.0) * (screen_w / 2.0)
+            in_view = True
+        else:
+            spot_sx = cam_x + hit_x_phys * s
+            in_view = abs(spot_sx - cam_x) <= screen_w / 2.0
+            spot_sx = max(scr.left() + 3, min(scr.right() - 3, spot_sx))
+
+        # Laser beam (dashed green): lower part, then the same slope shifted past the break
+        painter.setPen(QPen(self.col_beam, 2, Qt.DashLine))
+        if has_break:
+            painter.drawLine(QPointF(laser_x, cam_y), QPointF(x_of(z1), y1))
+            painter.drawLine(QPointF(x_of(z2), y2), QPointF(spot_sx, obj_y))
+            # break marks: dotted lines across the gap + small slashes on the beam and the axis
+            painter.setPen(QPen(QColor(200, 200, 200, 120), 1, Qt.DotLine))
+            painter.drawLine(QPointF(8, y1), QPointF(w - 8, y1))
+            painter.drawLine(QPointF(8, y2), QPointF(w - 8, y2))
+            painter.setPen(QPen(Qt.white, 2))
+            for bx, by in ((cam_x, y1), (cam_x, y2), (x_of(z1), y1), (x_of(z2), y2)):
+                painter.drawLine(QPointF(bx - 7, by + 4), QPointF(bx + 7, by - 4))
+        else:
+            painter.drawLine(QPointF(laser_x, cam_y), QPointF(spot_sx, obj_y))
+
+        # Spot marker
+        painter.setPen(QPen(Qt.white, 1))
+        painter.setBrush(QColor(255, 30, 30) if in_view else QColor(120, 120, 120))
+        painter.drawEllipse(QPointF(spot_sx, obj_y), 6, 6)
+        painter.setBrush(Qt.white)
+        painter.drawEllipse(QPointF(spot_sx, obj_y), 2, 2)
+
+        # Baseline joining camera and laser (dashed)
+        painter.setPen(QPen(QColor(200, 200, 200, 170), 2, Qt.DashLine))
+        painter.drawLine(QPointF(cam_x + 15, cam_y - 9), QPointF(laser_x - 15, cam_y - 9))
+
+        # Camera box and laser box
         painter.setPen(Qt.NoPen)
-        obj_rect = QRect(int(cam_x - 30), int(obj_y - 10), 60, 20)
-        painter.drawRoundedRect(obj_rect, 4, 4)
-        
-        # 3. Draw Laser beam (dashed green)
-        pen_laser_beam = QPen(self.col_beam, 2, Qt.DashLine)
-        painter.setPen(pen_laser_beam)
-        painter.drawLine(int(laser_x), int(laser_y), int(hit_x_draw), int(obj_y))
-        
-        # Draw the spot on the object
-        painter.setBrush(QColor(0, 255, 0))
-        painter.drawEllipse(QPointF(hit_x_draw, obj_y), 4, 4)
-        
-        # 4. Draw Camera box (placed above cam_y)
         painter.setBrush(self.col_cam)
         painter.drawRect(int(cam_x - 15), int(cam_y - 18), 30, 18)
         painter.setPen(Qt.white)
         painter.setFont(QFont("Arial", 8, QFont.Bold))
         painter.drawText(int(cam_x - 12), int(cam_y - 5), "CAM")
-        
-        # 5. Draw Laser box (placed above laser_y)
+        painter.setPen(Qt.NoPen)
         painter.setBrush(self.col_laser)
-        painter.drawRect(int(laser_x - 15), int(laser_y - 18), 30, 18)
+        painter.drawRect(int(laser_x - 15), int(cam_y - 18), 30, 18)
         painter.setPen(Qt.black)
-        painter.setFont(QFont("Arial", 8, QFont.Bold))
-        painter.drawText(int(laser_x - 11), int(laser_y - 5), "LSR")
-        
-        # 6. Draw Editable Text Overlay (Base distance - centered underneath)
+        painter.drawText(int(laser_x - 11), int(cam_y - 5), "LSR")
+
+        # Editable overlays: B below the boxes, angle above the laser
         mid_x = (cam_x + laser_x) / 2
         base_text = f"B: {self.base_distance:.1f}mm"
-        
         painter.setFont(QFont("Arial", 9, QFont.Bold))
         fm = painter.fontMetrics()
-        
-        # Base Distance Rect - cleanly positioned below the boxes
         b_w = fm.horizontalAdvance(base_text) + 12
-        self.rect_base = QRect(int(mid_x - b_w/2), int(cam_y + 8), b_w, 22)
+        self.rect_base = QRect(int(mid_x - b_w / 2), int(cam_y + 8), b_w, 22)
         painter.setBrush(self.col_text_bg)
         painter.setPen(QPen(QColor("#444"), 1))
         painter.drawRoundedRect(self.rect_base, 3, 3)
         painter.setPen(Qt.white)
         painter.drawText(self.rect_base, Qt.AlignCenter, base_text)
-        
-        # Angle Rect - cleanly positioned above the laser box
+
         angle_text = f"a: {self.angle_deg:.1f}°"
         a_w = fm.horizontalAdvance(angle_text) + 12
-        self.rect_angle = QRect(int(laser_x - a_w/2), int(laser_y - 44), a_w, 22)
+        self.rect_angle = QRect(int(laser_x - a_w / 2), int(cam_y - 44), a_w, 22)
         painter.setBrush(self.col_text_bg)
         painter.setPen(QPen(QColor("#00aaff"), 1))
         painter.drawRoundedRect(self.rect_angle, 3, 3)
