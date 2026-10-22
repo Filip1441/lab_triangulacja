@@ -30,7 +30,7 @@ from ui.highlighter import PythonSyntaxHighlighter
 from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
-from ui.export_dialog import ExportDialog
+from ui.export_page import ExportPage
 from core.share_server import ShareServer
 from core import results
 
@@ -125,10 +125,11 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.btn_stage1)
         nav_layout.addWidget(self.btn_stage2)
         nav_layout.addWidget(self.btn_stage3)
-        self.btn_export = QPushButton("Finish && Export")
-        self.btn_export.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        self.btn_export.clicked.connect(self.show_export_dialog)
-        nav_layout.addWidget(self.btn_export)
+        self.btn_stage4 = QPushButton("4. Export Results")
+        self.btn_stage4.setCheckable(True)
+        self.btn_stage4.setObjectName("exportTab")
+        self.nav_group.addButton(self.btn_stage4, 4)
+        nav_layout.addWidget(self.btn_stage4)
         main_layout.addLayout(nav_layout)
         
         # Content Area (Widescreen 16:9 layout)
@@ -184,6 +185,8 @@ class MainWindow(QMainWindow):
         self.init_stage1_ui()
         self.init_stage2_ui()
         self.init_stage3_ui()
+        self.export_page = ExportPage(self)
+        self.stack.addWidget(self.export_page)
         
         # Default stack index is 0 (Stage 0)
         self.stack.setCurrentIndex(0)
@@ -556,9 +559,6 @@ class MainWindow(QMainWindow):
         self.btn_toggle_pid.toggled.connect(self.toggle_pid)
         self.pid_worker.pid_updated.connect(self.update_pid_plot)
 
-    def show_export_dialog(self):
-        ExportDialog(self).exec()
-
     def show_settings_dialog(self):
         if self.settings_dialog is None:
             self.settings_dialog = SettingsDialog(self)
@@ -574,6 +574,8 @@ class MainWindow(QMainWindow):
 
     def switch_stage(self, index: int):
         self.stack.setCurrentIndex(index)
+        if index == 4:
+            self.export_page.refresh()  # results are packed automatically when the tab opens
         btn = self.nav_group.button(index)
         if btn and not btn.isChecked():
             btn.setChecked(True)

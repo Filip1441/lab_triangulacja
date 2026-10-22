@@ -7,6 +7,10 @@
   <keyboard></keyboard>
   <mouse></mouse>
   <applications>
-    <application class="*"><fullscreen>yes</fullscreen><decor>no</decor></application>
+    <!-- main window fullscreen; dialogs (edit angle, settings) keep their own size, centered -->
+    <application type="normal"><fullscreen>yes</fullscreen><decor>no</decor></application>
+    <application type="dialog"><fullscreen>no</fullscreen><decor>no</decor><maximized>no</maximized>
+      <position force="yes"><x>center</x><y>center</y></position>
+    </application>
   </applications>
 </openbox_config>
