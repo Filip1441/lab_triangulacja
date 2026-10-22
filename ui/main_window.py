@@ -545,11 +545,27 @@ class MainWindow(QMainWindow):
         self.hw_group.setEnabled(not locked)
         if index == 0:
             self.live_point_item.clear()
+        self._sync_schematic_override()
+
+    def _sync_schematic_override(self, live_dist=None):
+        """
+        Stage 1 shows on the schematic the distance the app believes, so the numbers agree everywhere:
+        calibration tab -> the distance typed by the student; measurement tab -> the distance estimated from the
+        fitted curve (the typed one until a fit and a spot exist). Other stages use the triangulated distance.
+        """
+        override = None
+        if self.stack.currentIndex() == 1:
+            if self.tabs_s1.currentIndex() == 1 and live_dist is not None:
+                override = live_dist
+            else:
+                override = self.spin_physical_dist.value()
+        self.schematic.distance_override = override
+        self.schematic.update()
 
     def switch_stage(self, index: int):
         self.stack.setCurrentIndex(index)
         self.schematic.show_distance = (index != 2)   # Stage 2: the distance is to be calculated by the students
-        self.schematic.update()
+        self._sync_schematic_override()
         if index == 4:
             self.export_page.refresh()  # results are packed automatically when the tab opens
         btn = self.nav_group.button(index)
@@ -588,6 +604,8 @@ class MainWindow(QMainWindow):
         # Update simulation mode targets
         self.camera_worker.set_simulated_target_distance(val)
         self.schematic.update_state(self.schematic.base_distance, self.schematic.angle_deg, val)
+        
+        self._sync_schematic_override()
         
         # Sync other inputs without recursive feedback
         if hasattr(self, 'spin_physical_dist'):
@@ -783,9 +801,11 @@ class MainWindow(QMainWindow):
                 dist = self.calculate_distance_from_val(x)
                 self.lbl_live_distance.setText(f"{dist:.1f} mm")
                 self.live_point_item.setData([x], [dist])
+                self._sync_schematic_override(dist)
             else:
                 self.lbl_live_distance.setText("No Fit Data")
                 self.live_point_item.setData([], [])
+                self._sync_schematic_override(None)
                 
         # Update Stage 2 spot label during script execution
         if self.stack.currentIndex() == 2:

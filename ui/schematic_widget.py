@@ -82,6 +82,7 @@ class InteractiveSchematicWidget(QWidget):
         self._scale = None           # px per mm, kept stable between frames
         self._range = None           # distance range (mm) the vertical axis currently shows
         self.show_distance = True    # False in Stage 2: students must calculate Z themselves
+        self.distance_override = None  # Stage 1: the distance the app currently believes (typed or fitted), in mm
         self._z_ema = None           # smoothed triangulated distance
         self._z_time = 0.0
         self._breaking = False       # break state with hysteresis, so the cut does not flicker
@@ -131,6 +132,8 @@ class InteractiveSchematicWidget(QWidget):
         Distance drawn: triangulated from the detected spot and the servo angle, smoothed so the drawing does not
         shake, and held for 3 s when the spot drops out. Falls back to the set object distance after that.
         """
+        if self.distance_override is not None:
+            return max(100.0, min(50000.0, float(self.distance_override)))
         now = time.time()
         if self.spot_x is not None:
             tan_theta = ((self.spot_x - 320.0) / 320.0) * math.tan(math.radians(self.fov_deg / 2.0))
