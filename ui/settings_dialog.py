@@ -231,7 +231,7 @@ class SettingsDialog(QDialog):
         self.lbl_cal_status.setText(
             f"Spot centered at {res['center_physical']:.2f} deg (physical), parallel at {res['parallel_physical']:.2f} deg.\n"
             f"New offset {res['offset']:+.2f} deg, FOV {res['fov']:.2f} deg "
-            f"({res['points']} pts, fit error {res['rms_px']:.1f} px). Press Apply && Save.")
+            f"({res['points']} pts, fit error {res['rms_px']:.1f} px). Press Apply & Save.")
         self.btn_cal_apply.setEnabled(True)
         self.finish_cal_motion()
 
@@ -249,7 +249,7 @@ class SettingsDialog(QDialog):
                               mw.camera_fov, frame_w)
         self.pending_cal = (off, mw.camera_fov)
         self.lbl_cal_status.setText(
-            f"Servo {enc:.2f} deg, spot at x={spot[0]:.0f} px -> offset {off:+.2f} deg. Press Apply && Save.")
+            f"Servo {enc:.2f} deg, spot at x={spot[0]:.0f} px -> offset {off:+.2f} deg. Press Apply & Save.")
         self.btn_cal_apply.setEnabled(True)
 
     def apply_calibration(self):
