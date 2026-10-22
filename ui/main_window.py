@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         self._autorun_pending = False
         self.settings_dialog = None
         self.s1_frames = []
+        self.s2_verifications = []   # (ok, window screenshot) after each 'Verify Answer', exported with the results
         self.new_frame_event = threading.Event()
         
         # Internal State
@@ -406,6 +407,11 @@ class MainWindow(QMainWindow):
         self.btn_s2_verify.clicked.connect(self.verify_s2_answer)
         ans_layout.addWidget(self.btn_s2_verify)
         layout.addWidget(ans_group)
+        
+        self.lbl_s2_result = QLabel("")
+        self.lbl_s2_result.setWordWrap(True)
+        self.lbl_s2_result.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lbl_s2_result)
         
         layout.addStretch()
         self.stack.addWidget(page)
@@ -905,11 +911,20 @@ class MainWindow(QMainWindow):
             # Allow 5% error margin
             error_margin = abs(theoretical - student_ans) / theoretical
             if error_margin <= 0.05:
-                QMessageBox.information(self, "Success!", f"Correct! The actual calculated distance is {theoretical:.1f} mm. Your answer of {student_ans:.1f} mm is within acceptable range.")
+                self._show_s2_result(True, f"CORRECT. The distance from the model is {theoretical:.1f} mm; your answer of "
+                                           f"{student_ans:.1f} mm is within 5% ({error_margin * 100:.1f}% off).")
             else:
-                QMessageBox.critical(self, "Incorrect Answer", f"Try again. Your calculations do not match the geometric model.")
+                self._show_s2_result(False, "INCORRECT. Your calculation does not match the geometric model. Try again.")
         else:
             QMessageBox.warning(self, "Invalid Angle", "Laser beam is parallel to the camera. Recalculate with a different angle.")
+
+    def _show_s2_result(self, ok: bool, text: str):
+        """Shows the verdict on the Stage 2 page (so it is visible in screenshots) and keeps a screenshot for the report."""
+        color = "#00e676" if ok else "#ff5252"
+        self.lbl_s2_result.setStyleSheet(f"color: {color}; font-size: 16px; font-weight: bold; padding: 8px;")
+        self.lbl_s2_result.setText(text)
+        self.s2_verifications.append((ok, self.grab()))
+        del self.s2_verifications[:-10]
 
     # --- Stage 3 Logic ---
     def update_pid_gains(self):

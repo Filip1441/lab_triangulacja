@@ -104,6 +104,8 @@ def build_package(mw, note: str = "") -> str:
             _export_plot(mw.calib_plot, os.path.join(work, "calibration_plot.png"))
             for i, frame in enumerate(getattr(mw, "s1_frames", [])):
                 _save_png(os.path.join(work, f"calibration_point_{i + 1:02d}.png"), frame)
+        for i, (ok, pix) in enumerate(getattr(mw, "s2_verifications", [])):
+            pix.save(os.path.join(work, f"stage2_verify_{i + 1:02d}_{'ok' if ok else 'fail'}.png"))
         with open(os.path.join(work, "calibration_fit.txt"), "w", encoding="utf-8") as f:
             f.write(mw.lbl_fit_eq.text() + "\n")
         _export_plot(mw.plot_widget, os.path.join(work, "tracking_plot.png"))
