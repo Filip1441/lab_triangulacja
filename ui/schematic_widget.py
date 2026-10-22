@@ -1,3 +1,4 @@
+import logging
 import math
 from PySide6.QtWidgets import QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDoubleSpinBox, QLabel
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF
@@ -94,7 +95,16 @@ class InteractiveSchematicWidget(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        # Never let a drawing error blank the schematic: always close the painter, log, and repaint next frame.
         painter = QPainter(self)
+        try:
+            self._paint(painter)
+        except Exception:
+            logging.getLogger(__name__).exception("Schematic paint failed")
+        finally:
+            painter.end()
+
+    def _paint(self, painter):
         painter.setRenderHint(QPainter.Antialiasing)
         
         w = self.width()
@@ -106,7 +116,7 @@ class InteractiveSchematicWidget(QWidget):
         # Dynamic horizontal scaling: ensure baseline fits with comfortable margins
         pad_x = 32.0
         avail_w = max(80.0, w - 2 * pad_x)
-        scale_x = max(0.4, min(1.2, avail_w / max(50.0, self.base_distance)))
+        scale_x = max(0.02, min(1.2, avail_w / max(50.0, self.base_distance)))  # shrinks to fit large B
         base_span = self.base_distance * scale_x
         cam_x = (w - base_span) / 2.0
         laser_x = cam_x + base_span
