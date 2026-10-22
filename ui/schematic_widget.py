@@ -150,8 +150,8 @@ class InteractiveSchematicWidget(QWidget):
 
         cam_y = h - 62.0
         top = 24.0
-        screen_h = 46.0
-        screen_w = max(90.0, min(avail_w, field_w * s))
+        screen_h = 14.0                                  # low, wide strip
+        screen_w = max(120.0, min(avail_w, field_w * s))
         left_px = max(screen_w / 2.0 + 4.0, 104.0)      # room for the distance label left of the axis
         right_px = max(screen_w / 2.0 + 4.0, B * s + 22.0)
         cam_x = (w - (left_px + right_px)) / 2.0 + left_px
@@ -194,12 +194,12 @@ class InteractiveSchematicWidget(QWidget):
         scr = QRectF(cam_x - screen_w / 2.0, obj_y - screen_h / 2.0, screen_w, screen_h)
         painter.setBrush(QColor(255, 136, 0, 215))
         painter.setPen(QPen(QColor("#ffb84d"), 2))
-        painter.drawRoundedRect(scr, 4, 4)
+        painter.drawRoundedRect(scr, 3, 3)
         painter.setPen(QPen(QColor(0, 0, 0, 110), 1))
-        painter.drawLine(QPointF(cam_x, scr.top() + 3), QPointF(cam_x, scr.bottom() - 3))   # image centre (x = 320 px)
+        painter.drawLine(QPointF(cam_x, scr.top() + 2), QPointF(cam_x, scr.bottom() - 2))   # image centre (x = 320 px)
         for k in (-1.0, -0.5, 0.5, 1.0):
             tx = cam_x + k * screen_w / 2.0 * 0.98
-            painter.drawLine(QPointF(tx, scr.bottom() - 8), QPointF(tx, scr.bottom() - 3))
+            painter.drawLine(QPointF(tx, scr.bottom() - 5), QPointF(tx, scr.bottom() - 2))
 
         # Distance label on the camera axis (the segment joining camera and screen)
         seg_top, seg_bottom = scr.bottom(), (y2 if has_break else cam_y - 18.0)
