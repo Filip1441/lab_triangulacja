@@ -45,7 +45,8 @@ class ExportPage(QWidget):
 
         self.qr_row = QHBoxLayout()
         self.qr_row.setSpacing(40)
-        lay.addLayout(self.qr_row, 1)
+        lay.addLayout(self.qr_row)
+        lay.addStretch(1)
 
         self.lbl_info = QLabel("")
         self.lbl_info.setAlignment(Qt.AlignCenter)
