@@ -40,6 +40,7 @@ DEFAULT_SERVO_BASE_ANGLE = 90.0   # Calibrated base angle in GUI (90.0 deg = par
 SERVO_HARDWARE_OFFSET = -8.14     # Offset added to logical angle: physical_angle = logical_angle + offset
 SERVO_MIN_LOGICAL_ANGLE = 40.0    # Lower logical limit in UI (maps to physical ~31.5 deg)
 SERVO_MAX_LOGICAL_ANGLE = 135.0   # Upper logical limit in UI (maps to physical ~126.5 deg)
+SERVO_SLIDER_RANGE_DEG = 10.0     # Stage 1 'Servo Angle' slider spans base angle +/- this many degrees (fine adjustment)
 SERVO_MIN_ANGLE = 30.0            # Hard safety physical lower limit (prevents wire twisting)
 SERVO_MAX_ANGLE = 130.0           # Hard safety physical upper limit (prevents wire twisting)
 SERVO_MIN_PULSE = 500             # microseconds (legacy pigpio)
