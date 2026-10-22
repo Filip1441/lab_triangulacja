@@ -36,6 +36,8 @@ class CameraWorker(QThread):
         self._target_distance = 200.0  # Simulated target distance in mm
         self._base_distance = config.DEFAULT_BASE_DISTANCE_MM
         self.paused = False
+        self.last_frame = None
+        self.frame_counter = 0
         self.camera_fov = config.DEFAULT_FOV_DEG
 
     def set_mode(self, mode: str, path: str = None):
@@ -241,6 +243,8 @@ class CameraWorker(QThread):
                     frame = self._generate_simulated_frame()
 
                 if frame is not None:
+                    self.last_frame = frame
+                    self.frame_counter += 1
                     self.frame_ready.emit(frame)
 
             # Sleep to match target FPS

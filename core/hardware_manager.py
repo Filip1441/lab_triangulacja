@@ -238,16 +238,28 @@ class HardwareManager(QObject):
         """Returns the current logical angle of the servo (e.g. 90.0 deg when parallel)."""
         return self.current_angle
 
-    def get_physical_encoder_angle(self) -> float:
-        """Explicitly reads the physical magnetic encoder over serial (thread-safe)."""
+    def get_physical_encoder_angle(self):
+        """Reads the physical magnetic encoder over serial (thread-safe). None if unavailable."""
         if self.use_st3215 and self.st3215:
             try:
-                enc = self.st3215.get_angle()
-                if enc is not None:
-                    self.current_angle = enc
+                return self.st3215.get_angle()
             except Exception as e:
                 logger.debug(f"get_physical_encoder_angle error: {e}")
-        return self.current_angle
+        return None
+
+    def set_physical_angle(self, physical_angle: float, speed: int = 600):
+        """Moves the servo to a raw physical angle (bypasses the logical offset). Used by calibration."""
+        min_p = getattr(config, 'SERVO_MIN_ANGLE', 30.0)
+        max_p = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
+        physical_angle = max(min_p, min(max_p, float(physical_angle)))
+        if self.use_st3215 and self.st3215:
+            self.st3215.set_angle(physical_angle, speed=speed)
+        return physical_angle
+
+    def set_torque(self, enabled: bool):
+        """Enables or releases servo torque (released = servo can be turned by hand)."""
+        if self.use_st3215 and self.st3215:
+            self.st3215._write_reg(40, [1 if enabled else 0])
 
     def read_adc(self) -> list:
         """Reads values from the ADC (or returns simulated values)."""

@@ -47,3 +47,6 @@ exports/*.csv
 
 # Instrukcja laboratoryjna (lokalnie, poza gitem)
 instrukcja/
+
+# Station-specific servo/camera calibration
+calibration.json
