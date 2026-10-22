@@ -31,6 +31,7 @@ from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
 from ui.export_page import ExportPage
+from ui.admin_gate import request_admin_access
 from core.share_server import ShareServer
 from core import results
 
@@ -90,7 +91,7 @@ class MainWindow(QMainWindow):
         # Hidden shortcut for Settings (cross-platform Preferences standard: Cmd+, on mac, Ctrl+, on Win/Linux)
         self.shortcut_settings = QShortcut(QKeySequence(QKeySequence.Preferences), self)
         self.shortcut_settings.setContext(Qt.ApplicationShortcut)
-        self.shortcut_settings.activated.connect(self.show_settings_dialog)
+        self.shortcut_settings.activated.connect(self.open_admin)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -130,6 +131,11 @@ class MainWindow(QMainWindow):
         self.btn_stage4.setObjectName("exportTab")
         self.nav_group.addButton(self.btn_stage4, 4)
         nav_layout.addWidget(self.btn_stage4)
+        self.btn_admin = QPushButton("admin")
+        self.btn_admin.setObjectName("adminButton")
+        self.btn_admin.setFlat(True)
+        self.btn_admin.clicked.connect(self.open_admin)
+        nav_layout.addWidget(self.btn_admin)
         main_layout.addLayout(nav_layout)
         
         # Content Area (Widescreen 16:9 layout)
@@ -558,6 +564,11 @@ class MainWindow(QMainWindow):
         self.slider_pid_rate.spinbox.valueChanged.connect(self.update_pid_rate)
         self.btn_toggle_pid.toggled.connect(self.toggle_pid)
         self.pid_worker.pid_updated.connect(self.update_pid_plot)
+
+    def open_admin(self):
+        """Hidden settings (instructor cheat sheet, calibration, system) are behind the admin password."""
+        if request_admin_access(self):
+            self.show_settings_dialog()
 
     def show_settings_dialog(self):
         if self.settings_dialog is None:

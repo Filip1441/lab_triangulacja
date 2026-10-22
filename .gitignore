@@ -50,3 +50,6 @@ instrukcja/
 
 # Station-specific servo/camera calibration
 calibration.json
+
+# Admin password hash (set with deploy/set-admin-password.sh)
+admin.json

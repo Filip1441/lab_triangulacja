@@ -139,3 +139,36 @@ QCheckBox::indicator:checked {
     background-color: #4daafc;
     border: 2px solid #007acc;
 }
+
+/* Dialogs (frameless in kiosk mode, so they need their own border) */
+QDialog {
+    border: 2px solid #007acc;
+    border-radius: 8px;
+    background-color: #252526;
+}
+
+QLabel#dialogTitle {
+    color: #4daafc;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+QPushButton#secondary {
+    background-color: #555555;
+}
+
+QPushButton#secondary:hover {
+    background-color: #6a6a6a;
+}
+
+QPushButton#adminButton {
+    background-color: transparent;
+    color: #666666;
+    font-size: 11px;
+    font-weight: normal;
+    padding: 2px 8px;
+}
+
+QPushButton#adminButton:hover {
+    color: #4daafc;
+}

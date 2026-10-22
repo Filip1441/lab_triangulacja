@@ -10,9 +10,15 @@ class EditValueDialog(QDialog):
         # Window flag makes it top-level but it runs modally when exec() is called
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(340)
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
+        
+        lbl_title = QLabel(title)
+        lbl_title.setObjectName("dialogTitle")
+        layout.addWidget(lbl_title)
         
         input_layout = QHBoxLayout()
         input_layout.addWidget(QLabel(label))
@@ -27,6 +33,7 @@ class EditValueDialog(QDialog):
         self.btn_apply = QPushButton("Apply")
         self.btn_ok = QPushButton("OK")
         self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setObjectName("secondary")
         
         btn_layout.addWidget(self.btn_apply)
         btn_layout.addWidget(self.btn_ok)

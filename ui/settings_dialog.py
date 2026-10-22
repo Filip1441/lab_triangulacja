@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
     QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox
 )
+import subprocess
 from PySide6.QtCore import Qt
 import config
 from core.calibration import CalibrationWorker, find_spot, offset_for_spot
@@ -99,6 +100,17 @@ class SettingsDialog(QDialog):
         cheat_layout.addWidget(self.lbl_answer)
         
         layout.addWidget(cheat_group)
+        
+        # System controls (kiosk has no desktop, so shutdown/restart live here)
+        sys_group = QGroupBox("System")
+        sys_layout = QHBoxLayout(sys_group)
+        for text, cmd in (("Restart app", ["sudo", "-n", "systemctl", "restart", "lab-triangulacja"]),
+                          ("Reboot Pi", ["sudo", "-n", "systemctl", "reboot"]),
+                          ("Shut down Pi", ["sudo", "-n", "systemctl", "poweroff"])):
+            b = QPushButton(text)
+            b.clicked.connect(lambda _=False, t=text, c=cmd: self.confirm_system(t, c))
+            sys_layout.addWidget(b)
+        layout.addWidget(sys_group)
         
         # Close button
         btn_close = QPushButton("Close")
@@ -276,6 +288,11 @@ class SettingsDialog(QDialog):
         if self.chk_release.isChecked():
             self.chk_release.setChecked(False)
         super().closeEvent(event)
+
+    def confirm_system(self, text, cmd):
+        from PySide6.QtWidgets import QMessageBox
+        if QMessageBox.question(self, text, f"{text}?") == QMessageBox.Yes:
+            subprocess.Popen(cmd)
 
     def update_cheat_sheet(self):
         # Calculate the theoretical distance based on current geometry
