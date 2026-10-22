@@ -301,10 +301,14 @@ class MainWindow(QMainWindow):
         self.btn_export_s1 = QPushButton("Export CSV")
         self.btn_fit_linear = QPushButton("Fit Linear")
         self.btn_fit_exp = QPushButton("Fit Exponential")
+        self.btn_clear_fit = QPushButton("Remove Fit")
+        self.btn_clear_fit.setObjectName("secondary")
+        self.btn_clear_fit.setToolTip("Delete the current fit (e.g. after clicking the wrong model); the points stay")
         fit_btn_layout.addWidget(self.btn_delete_s1, 0, 0)
         fit_btn_layout.addWidget(self.btn_export_s1, 0, 1)
         fit_btn_layout.addWidget(self.btn_fit_linear, 1, 0)
         fit_btn_layout.addWidget(self.btn_fit_exp, 1, 1)
+        fit_btn_layout.addWidget(self.btn_clear_fit, 2, 0, 1, 2)
         tab_a_layout.addLayout(fit_btn_layout)
         
         self.lbl_fit_eq = QLabel("Equation: N/A")
@@ -491,6 +495,7 @@ class MainWindow(QMainWindow):
         
         self.btn_fit_linear.clicked.connect(self.fit_linear)
         self.btn_fit_exp.clicked.connect(self.fit_exponential)
+        self.btn_clear_fit.clicked.connect(self.clear_fit)
         
         # Stage 3 Controls
         self.slider_kp.spinbox.valueChanged.connect(self.update_pid_gains)
@@ -868,6 +873,16 @@ class MainWindow(QMainWindow):
     def update_calibration_plot_points(self):
         x, y = self.get_calibration_data()
         self.scatter_item.setData(x, y)
+
+    def clear_fit(self):
+        """Removes the fitted curve (the captured points stay), so a wrongly clicked model can be redone."""
+        self.active_fit_type = None
+        self.active_fit_popt = None
+        self.fit_line_item.setData([], [])
+        self.live_point_item.setData([], [])
+        self.lbl_fit_eq.setText("Equation: N/A")
+        self.lbl_live_distance.setText("No Fit Data")
+        self._sync_schematic_override(None)
 
     def fit_linear(self):
         x, y = self.get_calibration_data()
