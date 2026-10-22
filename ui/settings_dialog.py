@@ -12,6 +12,12 @@ from core.pid_autotune import PidAutoTuneWorker
 from core.demo_script import DEMO_SCRIPT
 
 
+def _note(text):
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    return lbl
+
+
 class SettingsDialog(QDialog):
     """Admin window (behind the password): calibration, camera, tracking, instructor answers, system."""
     def __init__(self, main_window):
@@ -114,8 +120,8 @@ class SettingsDialog(QDialog):
 
         tune = QGroupBox("PID auto-tune")
         t = QVBoxLayout(tune)
-        t.addWidget(QLabel("Tests several gain sets on the real servo (spot must be visible) and picks the one that "
-                           "settles fast without jitter. Takes about 40 s; the servo moves."))
+        t.addWidget(_note("Tests several gain sets on the real servo (spot must be visible) and picks the one that "
+                          "settles fast without jitter. Takes about 1 minute; the servo moves."))
         self.btn_tune = QPushButton("PID auto")
         self.btn_tune.clicked.connect(self.start_pid_autotune)
         t.addWidget(self.btn_tune)
@@ -132,7 +138,7 @@ class SettingsDialog(QDialog):
     def build_instructor_tab(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addWidget(QLabel("Stage 2 answer from the live spot and servo angle:"))
+        lay.addWidget(_note("Stage 2 answer from the live spot and servo angle:"))
         self.lbl_answer = QLabel("Calculating...")
         self.lbl_answer.setAlignment(Qt.AlignCenter)
         self.lbl_answer.setStyleSheet("font-size: 22px; font-weight: bold; color: #00ff00; padding: 16px;")
@@ -143,8 +149,8 @@ class SettingsDialog(QDialog):
     def build_demo_tab(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addWidget(QLabel("The code editor starts empty. Paste the demo solution (full spot detection pipeline) "
-                             "when showing the exercise to someone."))
+        lay.addWidget(_note("The code editor starts empty. Paste the demo solution (full spot detection pipeline) "
+                            "when showing the exercise to someone."))
         b = QPushButton("Paste demo code into the editor")
         b.clicked.connect(lambda: self.paste_demo(False))
         lay.addWidget(b)
@@ -178,7 +184,7 @@ class SettingsDialog(QDialog):
     def build_system_tab(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addWidget(QLabel("The kiosk has no desktop, so app and Pi control lives here."))
+        lay.addWidget(_note("The kiosk has no desktop, so app and Pi control lives here."))
         for text, cmd in (("Restart app", ["sudo", "-n", "systemctl", "restart", "lab-triangulacja"]),
                           ("Reboot Pi", ["sudo", "-n", "systemctl", "reboot"]),
                           ("Shut down Pi", ["sudo", "-n", "systemctl", "poweroff"])):
