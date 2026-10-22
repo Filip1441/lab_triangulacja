@@ -28,16 +28,16 @@ CAMERA_SENSOR_MODE = (1296, 972)  # Picamera2 raw mode covering the full sensor 
 DEFAULT_OFFSET_ANGLE_DEG = 90.0   # Reference angle: 90.0 deg is parallel to camera optical axis
 
 # Camera configuration
-DEFAULT_FOV_DEG = 5.97            # Horizontal FOV in degrees (measured: telephoto lens, ~6130 px focal length on 640 px frame)
+DEFAULT_FOV_DEG = 7.91            # Horizontal FOV in degrees, full-sensor 640x480 frame (measured; re-measure after changing the lens)
 DEFAULT_EXPOSURE_MS = 10.0        # Default camera exposure time in milliseconds (10.0 ms)
 
 # Servo calibration & limits (wire safety protections)
 # In GUI and mathematical model, 90.0 deg represents the beam being parallel to camera optical axis.
 # Measured on this rig (laser right of camera, wall 1020 mm): spot centered at physical 77.53 deg,
-# so parallel is at 81.46 deg and hardware offset is -8.54 deg.
+# so parallel is at 81.45 deg and hardware offset is -8.55 deg.
 # Re-measure with the auto-calibration in the hidden settings dialog (Cmd+, / Ctrl+,).
 DEFAULT_SERVO_BASE_ANGLE = 90.0   # Calibrated base angle in GUI (90.0 deg = parallel to camera optical axis)
-SERVO_HARDWARE_OFFSET = -8.54     # Offset added to logical angle: physical_angle = logical_angle + offset
+SERVO_HARDWARE_OFFSET = -8.55     # Offset added to logical angle: physical_angle = logical_angle + offset
 SERVO_MIN_LOGICAL_ANGLE = 40.0    # Lower logical limit in UI (maps to physical ~31.5 deg)
 SERVO_MAX_LOGICAL_ANGLE = 135.0   # Upper logical limit in UI (maps to physical ~126.5 deg)
 SERVO_MIN_ANGLE = 30.0            # Hard safety physical lower limit (prevents wire twisting)
