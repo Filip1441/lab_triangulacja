@@ -65,6 +65,8 @@ class InteractiveSchematicWidget(QWidget):
     base_distance_changed = Signal(float)
     angle_changed = Signal(float)
 
+    NICE_RANGES_MM = tuple(round(250 * 1.2 ** i) for i in range(0, 30))   # 250 mm ... ~13 m in 20% steps
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(220)
@@ -77,6 +79,7 @@ class InteractiveSchematicWidget(QWidget):
         self.spot_x = None           # spot pixel detected by the camera (None = not detected)
         self.fov_deg = getattr(config, 'DEFAULT_FOV_DEG', 30.0)
         self._scale = None           # px per mm, kept stable between frames
+        self._range = None           # distance range (mm) the vertical axis currently shows
         
         # Hitboxes for clicking
         self.rect_base = QRect()
@@ -142,10 +145,17 @@ class InteractiveSchematicWidget(QWidget):
         pad_x = 10.0
         avail_w = max(80.0, w - 2 * pad_x)
         fw = max(field_w, 20.0)
-        # Scale so that label column (left), screen and laser box all fit in the widget width
-        # Zoomed out on purpose: the base only needs ~60 px, so a distant screen stays in true scale (no break)
-        s_target = max(0.02, min(60.0 / B, (avail_w - 126.0) / B, (avail_w - 8.0) / fw, (avail_w - 26.0) / (fw / 2.0 + B)))
-        if self._scale is None or abs(s_target - self._scale) / self._scale > 0.04:  # hysteresis: no zoom jitter
+        # Vertical range shown: the smallest "nice" distance that holds Z, with hysteresis so the view does not jitter.
+        need = Z * 1.04
+        if self._range is None or need > self._range or Z < 0.72 * self._range:
+            self._range = next((r for r in self.NICE_RANGES_MM if r >= need), self.NICE_RANGES_MM[-1])
+        span_est = max(100.0, h - 106.0)                   # vertical room between the boxes and the screen
+        s_vertical = span_est / self._range
+        # Horizontal limits: label column (left), screen and laser box must fit in the widget width
+        s_h = max(0.02, min((avail_w - 126.0) / B, (avail_w - 8.0) / fw, (avail_w - 26.0) / (fw / 2.0 + B)))
+        # Use the whole height, but never shrink the base below ~50 px (then the far part is cut with a break)
+        s_target = min(s_h, max(s_vertical, min(50.0 / B, s_h)), 8.0)
+        if self._scale is None or abs(s_target - self._scale) / self._scale > 0.04:
             self._scale = s_target
         s = self._scale
 
