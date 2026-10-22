@@ -9,6 +9,7 @@ import config
 from core.calibration import CalibrationWorker, find_spot, offset_for_spot
 from core.card_measure import measure_card
 from core.pid_autotune import PidAutoTuneWorker
+from core.demo_script import DEMO_SCRIPT
 
 
 class SettingsDialog(QDialog):
@@ -37,6 +38,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self.build_camera_tab(), "Camera")
         self.tabs.addTab(self.build_tracking_tab(), "Tracking")
         self.tabs.addTab(self.build_instructor_tab(), "Instructor")
+        self.tabs.addTab(self.build_demo_tab(), "Demo")
         self.tabs.addTab(self.build_system_tab(), "System")
         layout.addWidget(self.tabs)
 
@@ -137,6 +139,41 @@ class SettingsDialog(QDialog):
         lay.addWidget(self.lbl_answer)
         lay.addStretch(1)
         return page
+
+    def build_demo_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel("The code editor starts empty. Paste the demo solution (full spot detection pipeline) "
+                             "when showing the exercise to someone."))
+        b = QPushButton("Paste demo code into the editor")
+        b.clicked.connect(lambda: self.paste_demo(False))
+        lay.addWidget(b)
+        b = QPushButton("Paste demo code and run it")
+        b.clicked.connect(lambda: self.paste_demo(True))
+        lay.addWidget(b)
+        b = QPushButton("Clear the editor")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.clear_editor)
+        lay.addWidget(b)
+        lay.addStretch(1)
+        return page
+
+    def paste_demo(self, run):
+        mw = self.main_window
+        if mw.txt_code.toPlainText().strip():
+            if QMessageBox.question(self, "Replace code", "The editor is not empty. Replace its content?") != QMessageBox.Yes:
+                return
+        mw.stop_custom_script()
+        mw.txt_code.setPlainText(DEMO_SCRIPT)
+        mw.switch_stage(0)
+        if run:
+            QTimer.singleShot(300, mw.run_custom_script)
+        self.close()
+
+    def clear_editor(self):
+        mw = self.main_window
+        mw.stop_custom_script()
+        mw.txt_code.clear()
 
     def build_system_tab(self):
         page = QWidget()
