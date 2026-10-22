@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QTimer
 import config
 from core.calibration import CalibrationWorker, find_spot, offset_for_spot
 from core.card_measure import measure_card
+from core.pid_autotune import PidAutoTuneWorker
 
 
 class SettingsDialog(QDialog):
@@ -21,6 +22,7 @@ class SettingsDialog(QDialog):
         self.camera_worker = main_window.camera_worker
         self.schematic = main_window.schematic
         self.cal_worker = None
+        self.tune_worker = None
         self.pending_cal = None
         self.prev_logical = None
 
@@ -107,6 +109,21 @@ class SettingsDialog(QDialog):
         self.spin_sweep_duration.valueChanged.connect(self.main_window.update_sweep_duration)
         row.addWidget(self.spin_sweep_duration)
         lay.addLayout(row)
+
+        tune = QGroupBox("PID auto-tune")
+        t = QVBoxLayout(tune)
+        t.addWidget(QLabel("Tests several gain sets on the real servo (spot must be visible) and picks the one that "
+                           "settles fast without jitter. Takes about 40 s; the servo moves."))
+        self.btn_tune = QPushButton("PID auto")
+        self.btn_tune.clicked.connect(self.start_pid_autotune)
+        t.addWidget(self.btn_tune)
+        self.lbl_tune = QLabel("")
+        self.lbl_tune.setWordWrap(True)
+        t.addWidget(self.lbl_tune)
+        lay.addWidget(tune)
+        if not self.main_window.hardware.use_st3215:
+            self.btn_tune.setEnabled(False)
+            self.lbl_tune.setText("Needs the physical servo (not available in simulation).")
         lay.addStretch(1)
         return page
 
@@ -332,6 +349,45 @@ class SettingsDialog(QDialog):
         config.reset_calibration()
         self.lbl_cal_status.setText("Saved calibration removed. Defaults apply after restart.")
 
+    # ---------- PID auto-tune ----------
+    def start_pid_autotune(self):
+        mw = self.main_window
+        if self.tune_worker and self.tune_worker.isRunning():
+            self.tune_worker.stop()
+            return
+        if mw.pid_worker.running:
+            mw.btn_toggle_pid.setChecked(False)
+        if mw.camera_worker.last_frame is None:
+            self.lbl_tune.setText("No camera frames yet.")
+            return
+        mw.hw_group.setEnabled(False)
+        self.btn_tune.setText("Cancel auto-tune")
+        self.tune_worker = PidAutoTuneWorker(mw.hardware, mw.camera_worker, mw.pid_worker, mw.camera_fov, self)
+        self.tune_worker.progress.connect(self.lbl_tune.setText)
+        self.tune_worker.result.connect(self.on_tune_result)
+        self.tune_worker.failed.connect(self.on_tune_failed)
+        self.tune_worker.start()
+
+    def _tune_done(self):
+        self.btn_tune.setText("PID auto")
+        self.main_window.hw_group.setEnabled(True)
+
+    def on_tune_failed(self, msg):
+        self.lbl_tune.setText(msg)
+        self._tune_done()
+
+    def on_tune_result(self, r):
+        mw = self.main_window
+        mw.slider_kp.setValue(min(r["kp"], 0.0100))
+        mw.slider_ki.setValue(min(r["ki"], 0.0020))
+        mw.slider_kd.setValue(min(r["kd"], 0.0010))
+        mw.slider_target_x.setValue(320)
+        self.lbl_tune.setText(
+            f"Applied: Kp {r['kp']:.4f}, Ki {r['ki']:.5f}, Kd {r['kd']:.5f}  "
+            f"(settles in {r['settle']:.1f} s, overshoot {r['overshoot']:.0f} px, jitter {r['jitter']:.1f} px; "
+            f"{r['trials']} trials). Saved.")
+        self._tune_done()
+
     # ---------- misc ----------
     def reset_settings(self):
         if QMessageBox.question(self, "Reset settings", "Forget remembered settings and restart the app?") == QMessageBox.Yes:
@@ -346,6 +402,9 @@ class SettingsDialog(QDialog):
         if self.cal_worker and self.cal_worker.isRunning():
             self.cal_worker.stop()
             self.cal_worker.wait(3000)
+        if self.tune_worker and self.tune_worker.isRunning():
+            self.tune_worker.stop()
+            self.tune_worker.wait(5000)
         if self.chk_release.isChecked():
             self.chk_release.setChecked(False)
         super().closeEvent(event)
