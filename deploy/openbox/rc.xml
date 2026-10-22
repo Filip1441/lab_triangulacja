@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kiosk: one fullscreen window, no decorations, no key or mouse bindings (students cannot open menus/terminals). -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus><focusNew>yes</focusNew></focus>
+  <theme><name>Clearlooks</name></theme>
+  <desktops><number>1</number></desktops>
+  <keyboard></keyboard>
+  <mouse></mouse>
+  <applications>
+    <application class="*"><fullscreen>yes</fullscreen><decor>no</decor></application>
+  </applications>
+</openbox_config>

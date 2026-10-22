@@ -1,16 +1,16 @@
 [Unit]
 Description=Lab Triangulacja app (autostart, restart on crash)
-After=network.target rpi-desktop-vnc.service
-Wants=rpi-desktop-vnc.service
+After=network.target display-manager.service
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=pi_admin
 WorkingDirectory=/home/pi_admin/lab_triangulacja
-Environment=DISPLAY=:1
-# Wait for the (virtual) X display before starting
-ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do [ -S /tmp/.X11-unix/X1 ] && exit 0; sleep 1; done; exit 1'
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi_admin/.Xauthority
+# Wait for the kiosk X session (lightdm autologin -> openbox) before starting
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 90); do [ -S /tmp/.X11-unix/X0 ] && [ -f /home/pi_admin/.Xauthority ] && exit 0; sleep 1; done; exit 1'
 ExecStart=/usr/bin/python3 main.py
 Restart=always
 RestartSec=3
