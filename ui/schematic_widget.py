@@ -143,7 +143,8 @@ class InteractiveSchematicWidget(QWidget):
         avail_w = max(80.0, w - 2 * pad_x)
         fw = max(field_w, 20.0)
         # Scale so that label column (left), screen and laser box all fit in the widget width
-        s_target = max(0.02, min(8.0, (avail_w - 126.0) / B, (avail_w - 8.0) / fw, (avail_w - 26.0) / (fw / 2.0 + B)))
+        # Zoomed out on purpose: the base only needs ~60 px, so a distant screen stays in true scale (no break)
+        s_target = max(0.02, min(60.0 / B, (avail_w - 126.0) / B, (avail_w - 8.0) / fw, (avail_w - 26.0) / (fw / 2.0 + B)))
         if self._scale is None or abs(s_target - self._scale) / self._scale > 0.04:  # hysteresis: no zoom jitter
             self._scale = s_target
         s = self._scale
@@ -151,7 +152,7 @@ class InteractiveSchematicWidget(QWidget):
         cam_y = h - 62.0
         top = 24.0
         screen_h = 14.0                                  # low, wide strip
-        screen_w = max(120.0, min(avail_w, field_w * s))
+        screen_w = max(40.0, min(avail_w, field_w * s))   # true width of the camera view at distance Z
         left_px = max(screen_w / 2.0 + 4.0, 104.0)      # room for the distance label left of the axis
         right_px = max(screen_w / 2.0 + 4.0, B * s + 22.0)
         cam_x = (w - (left_px + right_px)) / 2.0 + left_px
@@ -160,13 +161,11 @@ class InteractiveSchematicWidget(QWidget):
         span_px = cam_y - obj_y_min - screen_h / 2.0 - 6.0   # vertical room between boxes and screen
 
         # Vertical mapping with an optional break: the middle of the path is cut out and replaced by a gap.
-        lower_px, gap_px, upper_min = 0.30 * span_px, 34.0, 40.0
-        upper_max = max(upper_min, span_px - lower_px - gap_px)
-        has_break = Z * s > lower_px + gap_px + upper_min
+        # True scale while the screen fits; only when it is farther than the drawing area is the middle cut out.
+        lower_px, gap_px = 0.30 * span_px, 34.0
+        has_break = Z * s > span_px
         if has_break:
-            # The screen still moves with Z: the visible upper part grows smoothly with distance (not to scale).
-            upper_px = upper_min + (upper_max - upper_min) * (1.0 - math.exp(-Z / 1500.0))
-            upper_px = min(upper_px, Z * s - lower_px - 4.0)
+            upper_px = max(30.0, span_px - lower_px - gap_px)
             z1 = lower_px / s
             z2 = Z - upper_px / s
             y1 = cam_y - lower_px                     # top of the lower part
@@ -215,15 +214,12 @@ class InteractiveSchematicWidget(QWidget):
         painter.setPen(QColor("#ffd699"))
         painter.drawText(chip, Qt.AlignCenter, label)
 
-        # Spot position on the screen
+        # Spot on the screen. hit_x_phys is where the beam meets the screen plane; when a spot is detected, Z was
+        # computed from it, so this is exactly the detected position, and the beam stays a true straight line.
         hit_x_phys = B - Z * cot
-        if self.spot_x is not None:
-            spot_sx = cam_x + ((self.spot_x - 320.0) / 320.0) * (screen_w / 2.0)
-            in_view = True
-        else:
-            spot_sx = cam_x + hit_x_phys * s
-            in_view = abs(spot_sx - cam_x) <= screen_w / 2.0
-            spot_sx = max(scr.left() + 3, min(scr.right() - 3, spot_sx))
+        spot_sx = cam_x + hit_x_phys * s
+        in_view = self.spot_x is not None
+        spot_sx = max(scr.left() + 3, min(scr.right() - 3, spot_sx))
 
         # Laser beam (dashed green): lower part, then the same slope shifted past the break
         painter.setPen(QPen(self.col_beam, 2, Qt.DashLine))
