@@ -4,6 +4,9 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 import config
 
+REF_RATE_HZ = 15.0
+
+
 class PIDControllerWorker(QThread):
     """
     Smooth, jitter-free background thread that calculates PID output
@@ -19,10 +22,13 @@ class PIDControllerWorker(QThread):
         self.hardware_manager = hardware_manager
         self.running = False
         
-        # Default tuning gains (empirically optimized for 15 Hz tracking)
-        self.kp = 0.0015
+        # Default tuning gains, measured on the rig (telephoto lens, ~107 px/deg): settle < 1 s, overshoot < 10 px.
+        # Gains are defined per tick at REF_RATE_HZ; steps are scaled by dt so behaviour is rate-independent.
+        self.kp = 0.005
         self.ki = 0.0001
-        self.kd = 0.0001
+        self.kd = 0.0004
+        self.cmd_angle = 0.0
+        self._resync = True
         
         self.target_x = 320.0
         self.current_x = 320.0
@@ -108,6 +114,7 @@ class PIDControllerWorker(QThread):
         self.sweep_mode = False
         self.spot_lost_frames = 0
         self.error_history.clear()
+        self._resync = True
         
         min_a = getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0)
         max_a = getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0)
@@ -130,6 +137,7 @@ class PIDControllerWorker(QThread):
             # --- Scenario 1: Spot is Lost ---
             if self.spot_lost:
                 self.spot_lost_frames += 1
+                self._resync = True
                 self.integral = 0.0  # Reset integrator when spot is missing
                 self.prev_x = self.current_x
                 
@@ -185,6 +193,10 @@ class PIDControllerWorker(QThread):
             self.sweep_mode = False
             self._sweep_initialized = False
             
+            if self._resync:
+                self.cmd_angle = current_angle
+                self._resync = False
+            tick_scale = max(0.2, min(3.0, dt * REF_RATE_HZ))
             raw_error = self.target_x - self.current_x
             
             # Deadband: +/- 3.5 pixels deadband completely eliminates steady-state servo chatter
@@ -212,13 +224,15 @@ class PIDControllerWorker(QThread):
                     derivative = 0.0
                 d_term = self.kd * derivative
                 
-                step = p_term + i_term + d_term
+                step = (p_term + i_term + d_term) * tick_scale
                 
-                # Slew Rate Limiter: clamp step to max 0.25 deg per tick (~3.75 deg/s max)
-                max_step = 0.25
+                # Slew Rate Limiter: max 0.25 deg per reference tick (~3.75 deg/s)
+                max_step = 0.25 * tick_scale
                 step = max(-max_step, min(max_step, step))
                 
-                new_angle = max(min_a, min(max_a, current_angle + step))
+                # Integrate into an internal command so sub-threshold steps accumulate instead of stalling
+                self.cmd_angle = max(min_a, min(max_a, self.cmd_angle + step))
+                new_angle = self.cmd_angle
                 
                 # Only send command to servo if change exceeds mechanical threshold (0.05 deg)
                 if abs(new_angle - self.last_sent_angle) >= 0.05:
