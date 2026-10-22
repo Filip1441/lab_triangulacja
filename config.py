@@ -55,6 +55,12 @@ DEFAULT_SWEEP_RANGE_DEG = 25.0    # Safe sweep window around base angle (+/- deg
 # --- Auto-calibration ---
 DEFAULT_WALL_DISTANCE_MM = 1020.0  # Wall distance measured from the lens main plane, used by auto-calibration
 
+# --- Student results export ---
+RESULTS_DIR = "~/lab_results"      # Result ZIPs created by 'Finish & Export'
+RESULTS_KEEP_DAYS = 7             # Packages older than this are deleted (SD card is small)
+RESULTS_MIN_FREE_MB = 500         # Oldest packages are also deleted when free space drops below this
+SHARE_PORT = 8000                 # Download page port on the Pi
+
 # Station-specific calibration (written by the hidden settings dialog, not tracked by git)
 import json as _json
 import os as _os

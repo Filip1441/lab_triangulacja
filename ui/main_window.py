@@ -30,6 +30,9 @@ from ui.highlighter import PythonSyntaxHighlighter
 from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
+from ui.export_dialog import ExportDialog
+from core.share_server import ShareServer
+from core import results
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -51,6 +54,7 @@ class MainWindow(QMainWindow):
         self.script_runner = None
         self._autorun_pending = False
         self.settings_dialog = None
+        self.s1_frames = []
         self.new_frame_event = threading.Event()
         
         # Internal State
@@ -74,6 +78,14 @@ class MainWindow(QMainWindow):
         
         # Start Workers
         self.camera_worker.start()
+
+        # Result sharing: download page + weekly cleanup of old packages
+        self.share_server = ShareServer()
+        self.share_server.start()
+        results.purge_old()
+        self.purge_timer = QTimer(self)
+        self.purge_timer.timeout.connect(results.purge_old)
+        self.purge_timer.start(6 * 3600 * 1000)
         
         # Hidden shortcut for Settings (cross-platform Preferences standard: Cmd+, on mac, Ctrl+, on Win/Linux)
         self.shortcut_settings = QShortcut(QKeySequence(QKeySequence.Preferences), self)
@@ -113,6 +125,10 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.btn_stage1)
         nav_layout.addWidget(self.btn_stage2)
         nav_layout.addWidget(self.btn_stage3)
+        self.btn_export = QPushButton("Finish && Export")
+        self.btn_export.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        self.btn_export.clicked.connect(self.show_export_dialog)
+        nav_layout.addWidget(self.btn_export)
         main_layout.addLayout(nav_layout)
         
         # Content Area (Widescreen 16:9 layout)
@@ -540,6 +556,9 @@ class MainWindow(QMainWindow):
         self.btn_toggle_pid.toggled.connect(self.toggle_pid)
         self.pid_worker.pid_updated.connect(self.update_pid_plot)
 
+    def show_export_dialog(self):
+        ExportDialog(self).exec()
+
     def show_settings_dialog(self):
         if self.settings_dialog is None:
             self.settings_dialog = SettingsDialog(self)
@@ -800,6 +819,9 @@ class MainWindow(QMainWindow):
         self.table_s1.setItem(row, 1, QTableWidgetItem(str(px)))
         self.table_s1.setItem(row, 2, QTableWidgetItem(str(py)))
         self.table_s1.setItem(row, 3, QTableWidgetItem(str(dist)))
+        frame = self.current_raw_frame
+        self.s1_frames.insert(row, frame.copy() if frame is not None else None)
+        del self.s1_frames[50:]  # keep memory bounded
         self.update_calibration_plot_points()
 
     def delete_point_s1(self):
@@ -808,6 +830,8 @@ class MainWindow(QMainWindow):
             rows.add(item.row())
         for row in sorted(rows, reverse=True):
             self.table_s1.removeRow(row)
+            if row < len(self.s1_frames):
+                del self.s1_frames[row]
         self.update_calibration_plot_points()
 
     def export_s1(self):

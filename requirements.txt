@@ -7,3 +7,4 @@ pyqtgraph>=0.13.3
 # pigpio
 # adafruit-circuitpython-ads1x15
 scipy>=1.10.0
+segno>=1.6.0
