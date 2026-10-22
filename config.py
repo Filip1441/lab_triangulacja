@@ -55,6 +55,11 @@ DEFAULT_SWEEP_RANGE_DEG = 25.0    # Safe sweep window around base angle (+/- deg
 # --- Auto-calibration ---
 DEFAULT_WALL_DISTANCE_MM = 1020.0  # Wall distance measured from the lens main plane, used by auto-calibration
 
+# --- Admin access ---
+# Password for the small 'admin' button (hidden settings, calibration, shutdown). Not a secret: it only keeps
+# students out of the instructor tools on a lab station.
+ADMIN_PASSWORD = "pi_admin"
+
 # --- Student results export ---
 RESULTS_DIR = "~/lab_results"      # Result ZIPs created by 'Finish & Export'
 RESULTS_KEEP_DAYS = 7             # Packages older than this are deleted (SD card is small)

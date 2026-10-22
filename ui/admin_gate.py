@@ -42,11 +42,6 @@ class AdminLoginDialog(QDialog):
         row.addWidget(btn_cancel)
         lay.addLayout(row)
 
-        if not admin_auth.is_configured():
-            self.lbl_msg.setText("Admin password is not set.\nOn the Pi run: deploy/set-admin-password.sh")
-            self.edit.setEnabled(False)
-            self.btn_ok.setEnabled(False)
-
     def try_login(self):
         global _failures, _locked_until
         now = time.time()
