@@ -904,21 +904,44 @@ class MainWindow(QMainWindow):
 
     def fit_exponential(self):
         x, y = self.get_calibration_data()
-        if len(x) < 2:
-            self.lbl_fit_eq.setText("Not enough points to fit.")
+        if len(x) < 3:
+            self.lbl_fit_eq.setText("Exponential fit needs at least 3 points.")
             return
-            
-        def exp_func(x, a, b, c): return a * np.exp(b * x) + c
-        try:
-            popt, _ = curve_fit(exp_func, x, y, p0=(1, 0.01, 1))
-            fit_x = np.linspace(min(x), max(x), 100)
-            fit_y = exp_func(fit_x, *popt)
-            self.fit_line_item.setData(fit_x, fit_y)
-            self.lbl_fit_eq.setText(f"y = {popt[0]:.2f}e^({popt[1]:.4f}x) + {popt[2]:.2f}")
-            self.active_fit_type = "exp"
-            self.active_fit_popt = popt
-        except Exception as e:
-            self.lbl_fit_eq.setText("Fit failed.")
+        if np.ptp(x) < 1e-6:
+            self.lbl_fit_eq.setText("All points have the same X_px; move the screen between captures.")
+            return
+
+        # Fit y = a*exp(b*xn) + c on x normalised to 0..1 (raw pixel values overflow exp() and make curve_fit fail),
+        # trying several starting shapes and keeping the best, then convert back to y = a'*exp(b'*x) + c'.
+        x0, span = float(np.min(x)), float(np.ptp(x))
+        xn = (x - x0) / span
+        y_span = max(float(np.ptp(y)), 1.0)
+
+        def exp_func(t, a, b, c):
+            return a * np.exp(b * t) + c
+
+        best = None
+        for b0 in (-3.0, 3.0, -1.0, 1.0, -8.0, 8.0):
+            try:
+                a0 = float(y[np.argmin(xn)] - y[np.argmax(xn)]) / (1.0 - np.exp(b0))
+                c0 = float(y[np.argmin(xn)]) - a0
+                popt, _ = curve_fit(exp_func, xn, y, p0=(a0, b0, c0), bounds=([-np.inf, -25.0, -np.inf], [np.inf, 25.0, np.inf]),
+                                    maxfev=20000)
+                err = float(np.sum((exp_func(xn, *popt) - y) ** 2))
+                if np.isfinite(err) and (best is None or err < best[0]):
+                    best = (err, popt)
+            except Exception:
+                continue
+        if best is None:
+            self.lbl_fit_eq.setText("Fit failed: the points do not follow an exponential trend. Check the captured points.")
+            return
+        a, bb, c = best[1]
+        popt = np.array([a * np.exp(-bb * x0 / span), bb / span, c])
+        fit_x = np.linspace(x.min(), x.max(), 100)
+        self.fit_line_item.setData(fit_x, popt[0] * np.exp(popt[1] * fit_x) + popt[2])
+        self.lbl_fit_eq.setText(f"y = {popt[0]:.4g} * e^({popt[1]:.5f} x) + {popt[2]:.2f}")
+        self.active_fit_type = "exp"
+        self.active_fit_popt = popt
 
     # --- Stage 2 Verification Logic ---
     def verify_s2_answer(self):
