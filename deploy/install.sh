@@ -12,6 +12,9 @@ install -d -o pi_admin -g pi_admin $USER_HOME/.config/openbox
 install -m 644 -o pi_admin -g pi_admin openbox/rc.xml $USER_HOME/.config/openbox/rc.xml
 install -m 755 -o pi_admin -g pi_admin openbox/autostart $USER_HOME/.config/openbox/autostart
 
+install -d /etc/X11/xorg.conf.d
+install -m 644 xorg-kiosk.conf /etc/X11/xorg.conf.d/10-kiosk.conf
+
 # 2. App service
 install -m 644 lab-triangulacja.service /etc/systemd/system/lab-triangulacja.service
 systemctl daemon-reload
