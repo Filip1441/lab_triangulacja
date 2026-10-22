@@ -418,7 +418,7 @@ class MainWindow(QMainWindow):
         pid_group = QGroupBox("PID Tuning")
         pid_layout = QVBoxLayout(pid_group)
         
-        self.slider_kp = FloatParameterSlider("Kp", 0.0, 0.0100, 0.0050, 4)
+        self.slider_kp = FloatParameterSlider("Kp", 0.0, 0.0500, 0.0050, 4)
         self.slider_ki = FloatParameterSlider("Ki", 0.0, 0.0020, 0.0001, 5)
         self.slider_kd = FloatParameterSlider("Kd", 0.0, 0.0010, 0.0004, 5)
         
