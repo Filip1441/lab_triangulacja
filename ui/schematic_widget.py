@@ -1,5 +1,6 @@
 import logging
 import math
+import time
 from PySide6.QtWidgets import QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDoubleSpinBox, QLabel
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF
 from PySide6.QtCore import Qt, QRect, QRectF, QPointF, Signal
@@ -80,6 +81,9 @@ class InteractiveSchematicWidget(QWidget):
         self.fov_deg = getattr(config, 'DEFAULT_FOV_DEG', 30.0)
         self._scale = None           # px per mm, kept stable between frames
         self._range = None           # distance range (mm) the vertical axis currently shows
+        self._z_ema = None           # smoothed triangulated distance
+        self._z_time = 0.0
+        self._breaking = False       # break state with hysteresis, so the cut does not flicker
         
         # Hitboxes for clicking
         self.rect_base = QRect()
@@ -122,12 +126,21 @@ class InteractiveSchematicWidget(QWidget):
         return max(-1000.0, min(1000.0, math.cos(r) / math.sin(r))) if abs(math.sin(r)) > 1e-3 else (1000.0 if math.cos(r) > 0 else -1000.0)
 
     def _distance_mm(self):
-        """Distance drawn: triangulated from the detected spot and the servo angle, else the set object distance."""
+        """
+        Distance drawn: triangulated from the detected spot and the servo angle, smoothed so the drawing does not
+        shake, and held for 3 s when the spot drops out. Falls back to the set object distance after that.
+        """
+        now = time.time()
         if self.spot_x is not None:
             tan_theta = ((self.spot_x - 320.0) / 320.0) * math.tan(math.radians(self.fov_deg / 2.0))
             denom = self._cot(self.angle_deg) + tan_theta
             if denom > 1e-4:
-                return max(100.0, min(50000.0, self.base_distance / denom))
+                raw = max(100.0, min(50000.0, self.base_distance / denom))
+                self._z_ema = raw if self._z_ema is None else 0.8 * self._z_ema + 0.2 * raw
+                self._z_time = now
+        if self._z_ema is not None and now - self._z_time < 3.0:
+            return self._z_ema
+        self._z_ema = None
         return max(100.0, min(50000.0, self.object_distance))
 
     def _paint(self, painter):
@@ -173,7 +186,11 @@ class InteractiveSchematicWidget(QWidget):
         # Vertical mapping with an optional break: the middle of the path is cut out and replaced by a gap.
         # True scale while the screen fits; only when it is farther than the drawing area is the middle cut out.
         lower_px, gap_px = 0.30 * span_px, 34.0
-        has_break = Z * s > span_px
+        if not self._breaking and Z * s > span_px:
+            self._breaking = True
+        elif self._breaking and Z * s < 0.88 * span_px:
+            self._breaking = False
+        has_break = self._breaking
         if has_break:
             upper_px = max(30.0, span_px - lower_px - gap_px)
             z1 = lower_px / s
@@ -236,10 +253,7 @@ class InteractiveSchematicWidget(QWidget):
         if has_break:
             painter.drawLine(QPointF(laser_x, cam_y), QPointF(x_of(z1), y1))
             painter.drawLine(QPointF(x_of(z2), y2), QPointF(spot_sx, obj_y))
-            # break marks: dotted lines across the gap + small slashes on the beam and the axis
-            painter.setPen(QPen(QColor(200, 200, 200, 120), 1, Qt.DotLine))
-            painter.drawLine(QPointF(8, y1), QPointF(w - 8, y1))
-            painter.drawLine(QPointF(8, y2), QPointF(w - 8, y2))
+            # break marks: only the two cut lines (camera axis and laser beam) get a slash at each end of the gap
             painter.setPen(QPen(Qt.white, 2))
             for bx, by in ((cam_x, y1), (cam_x, y2), (x_of(z1), y1), (x_of(z2), y2)):
                 painter.drawLine(QPointF(bx - 7, by + 4), QPointF(bx + 7, by - 4))
