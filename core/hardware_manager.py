@@ -153,6 +153,9 @@ class HardwareManager(QObject):
         self.current_angle = base_angle
         self.target_angle = base_angle
         self.sim_pot_value = 0.0
+        self.measured_physical = None  # latest encoder reading (deg), updated by the poller thread
+        self.measured_time = 0.0
+        self._poll_running = False
         
         # Simulation timer for mock movement
         self.servo_sim_timer = QTimer(self)
@@ -160,6 +163,10 @@ class HardwareManager(QObject):
         
         if not self.simulation_mode:
             self._init_hardware()
+
+        if self.use_st3215:
+            self._poll_running = True
+            threading.Thread(target=self._poll_encoder, daemon=True).start()
 
         if self.simulation_mode:
             logger.info("HardwareManager started in Simulation Mode.")
@@ -234,8 +241,27 @@ class HardwareManager(QObject):
         else:
             pass  # Handled by simulation timer
 
+    def _poll_encoder(self):
+        """Keeps a smoothed copy of the servo's real position (the servo stops up to ~0.3 deg off its command)."""
+        while self._poll_running:
+            enc = self.st3215.get_angle() if self.st3215 else None
+            if enc is not None:
+                prev = self.measured_physical
+                self.measured_physical = enc if prev is None or abs(enc - prev) > 1.0 else 0.5 * enc + 0.5 * prev
+                self.measured_time = time.time()
+            time.sleep(0.05)
+
     def get_servo_angle(self) -> float:
-        """Returns the current logical angle of the servo (e.g. 90.0 deg when parallel)."""
+        """
+        Returns the logical angle of the servo (90.0 deg = parallel). With the ST3215 this is the angle MEASURED by
+        the encoder, not the commanded one, so triangulation uses where the laser really points.
+        """
+        if self.use_st3215 and self.measured_physical is not None and time.time() - self.measured_time < 0.5:
+            return self.measured_physical - getattr(config, 'SERVO_HARDWARE_OFFSET', 0.0)
+        return self.current_angle
+
+    def get_commanded_angle(self) -> float:
+        """Logical angle last sent to the servo."""
         return self.current_angle
 
     def get_physical_encoder_angle(self):
@@ -281,6 +307,7 @@ class HardwareManager(QObject):
 
     def cleanup(self):
         """Clean up hardware resources."""
+        self._poll_running = False
         if self.use_st3215 and self.st3215:
             self.st3215.close()
         if self.use_pigpio:
