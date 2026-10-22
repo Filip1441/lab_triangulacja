@@ -31,7 +31,6 @@ from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
 from ui.export_page import ExportPage
-from core.demo_script import API_HINT
 from ui.admin_gate import request_admin_access
 from utils.settings_store import SettingsStore
 from core.share_server import ShareServer
@@ -218,7 +217,7 @@ class MainWindow(QMainWindow):
         # Code Editor
         self.txt_code = QTextEdit()
         self.txt_code.setFont(QFont("Courier", 10))
-        self.txt_code.setPlaceholderText(API_HINT)  # editor starts empty; the demo solution lives in the admin window
+        # The editor starts completely empty; the demo solution lives in the admin window.
         
         # Syntax highlighter
         self.highlighter = PythonSyntaxHighlighter(self.txt_code.document())
