@@ -50,6 +50,23 @@ class PidAutoTuneWorker(QThread):
                 time.sleep(0.005)
         return float(np.median(xs)) if len(xs) >= 2 else None
 
+    def _scan_for_spot(self):
+        """The spot is visible over only ~8 deg, so step through the usual range in 3 deg jumps until it shows up."""
+        self.progress.emit("Looking for the laser spot...")
+        lo = getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0) + 2
+        hi = getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0) - 2
+        order = [a for a in np.arange(70.0, 101.0, 3.0)] + \
+                [a for a in np.arange(lo, hi, 3.0) if not 70.0 <= a <= 101.0]
+        for a in order:
+            if self._stop:
+                return None
+            self.hardware.set_servo_angle(float(a), speed=700)
+            time.sleep(0.7)
+            x = self._spot_x(timeout=0.8)
+            if x is not None:
+                return x
+        return None
+
     def _trial(self, start_angle, kp, ki, kd):
         """Runs one step response; returns metrics or None if the spot was lost."""
         self.hardware.set_servo_angle(start_angle)
@@ -100,9 +117,13 @@ class PidAutoTuneWorker(QThread):
             self.pid.stop()
 
     def _run(self):
+        restore = self.hardware.get_commanded_angle()
         x_now = self._spot_x()
         if x_now is None:
-            return self.failed.emit("No laser spot visible. Aim the laser at the wall inside the camera view.")
+            x_now = self._scan_for_spot()
+        if x_now is None:
+            self.hardware.set_servo_angle(restore)
+            return self.failed.emit("Could not find the laser spot. Check that the laser points at the wall in view.")
         f_px = 320.0 / math.tan(math.radians(self.fov_deg / 2.0))
         ppd = f_px * math.pi / 180.0                       # pixels per degree at the image centre
         centered = self.hardware.get_servo_angle() + (TARGET_X - x_now) / ppd   # spot moves right as angle grows
@@ -110,8 +131,6 @@ class PidAutoTuneWorker(QThread):
         lo, hi = getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0), getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0)
         if not (lo + 1 < start < hi - 1 and lo + 1 < centered < hi - 1):
             return self.failed.emit("Servo angle out of range for the test. Move the spot closer to the image centre.")
-        restore = self.hardware.get_commanded_angle()
-
         results = []
         def run_set(g, h):
             kp = g / ppd
