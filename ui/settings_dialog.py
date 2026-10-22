@@ -382,6 +382,7 @@ class SettingsDialog(QDialog):
         mw.slider_ki.setValue(min(r["ki"], 0.0020))
         mw.slider_kd.setValue(min(r["kd"], 0.0010))
         mw.slider_target_x.setValue(320)
+        mw.update_pid_gains()   # sliders may already hold these values (no signal), so push them to the worker explicitly
         self.lbl_tune.setText(
             f"Applied: Kp {r['kp']:.4f}, Ki {r['ki']:.5f}, Kd {r['kd']:.5f}  "
             f"(settles in {r['settle']:.1f} s, overshoot {r['overshoot']:.0f} px, jitter {r['jitter']:.1f} px; "
