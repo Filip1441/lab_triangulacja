@@ -208,7 +208,7 @@ class HardwareManager(QObject):
             logger.info(f"pigpio not available ({e}). Falling back to Simulation Mode.")
             self.simulation_mode = True
 
-    def set_servo_angle(self, angle: float):
+    def set_servo_angle(self, angle: float, speed: int = None):
         """Sets the servo to a specific logical angle, converting to physical angle via offset."""
         min_log = getattr(config, 'SERVO_MIN_LOGICAL_ANGLE', 40.0)
         max_log = getattr(config, 'SERVO_MAX_LOGICAL_ANGLE', 135.0)
@@ -229,7 +229,7 @@ class HardwareManager(QObject):
         
         if self.use_st3215 and self.st3215:
             try:
-                self.st3215.set_angle(physical_angle)
+                self.st3215.set_angle(physical_angle, speed=speed or 1200)
             except Exception as e:
                 logger.warning(f"set_servo_angle ST3215 error: {e}")
         elif self.use_pigpio:

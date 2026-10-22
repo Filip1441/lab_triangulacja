@@ -49,7 +49,8 @@ SERVO_MAX_PULSE = 2500            # microseconds (legacy pigpio)
 PID_UPDATE_RATE_HZ = 15           # Update frequency in Hz (15 Hz is smooth and saves Raspberry Pi CPU)
 DEFAULT_SWEEP_ENABLED = False     # Disabled by default so servo won't unexpectedly jerk when spot is lost
 DEFAULT_SWEEP_TIMEOUT_SEC = 5.0   # Time in seconds before sweep triggers when spot is lost
-DEFAULT_SWEEP_DURATION_SEC = 8.0  # Duration in seconds for sweep (spot is visible only ~6 deg wide, so sweep slowly)
+DEFAULT_SWEEP_DURATION_SEC = 20.0 # Duration in seconds for a sweep (~2.5 deg/s: the spot is only ~8 deg wide in the image)
+SWEEP_SERVO_SPEED = 500           # ST3215 speed during sweep moves (steps/s, ~44 deg/s); normal moves use 1200
 DEFAULT_SWEEP_RANGE_DEG = 25.0    # Safe sweep window around base angle (+/- degrees)
 
 # --- Auto-calibration ---

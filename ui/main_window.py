@@ -32,6 +32,7 @@ from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
 from ui.export_page import ExportPage
 from ui.admin_gate import request_admin_access
+from utils.settings_store import SettingsStore
 from core.share_server import ShareServer
 from core import results
 
@@ -74,8 +75,15 @@ class MainWindow(QMainWindow):
         self.active_fit_type = None  # "linear" or "exp"
         self.active_fit_popt = None
         
+        self.settings = SettingsStore()
         self.init_ui()
         self.connect_signals()
+        self.settings.enabled = False
+        self.restore_settings()
+        self.settings.enabled = True
+        self.settings_timer = QTimer(self)
+        self.settings_timer.timeout.connect(self.settings.flush)
+        self.settings_timer.start(1000)
         
         # Start Workers
         self.camera_worker.start()
@@ -570,6 +578,32 @@ class MainWindow(QMainWindow):
         if request_admin_access(self):
             self.show_settings_dialog()
 
+    def restore_settings(self):
+        """Re-applies remembered settings (PID, B, sweep). Signals fire as values are set, which also applies them."""
+        st = self.settings
+        for key, slider in (('pid_kp', self.slider_kp), ('pid_ki', self.slider_ki), ('pid_kd', self.slider_kd)):
+            v = st.get(key)
+            if v is not None:
+                slider.setValue(float(v))
+        for key, slider in (('pid_target_x', self.slider_target_x), ('pid_rate_hz', self.slider_pid_rate)):
+            v = st.get(key)
+            if v is not None:
+                slider.setValue(int(v))
+        base = st.get('base_distance_mm')
+        if base is not None:
+            self.schematic.update_state(float(base), self.schematic.angle_deg, self.schematic.object_distance)
+            self.update_base_distance(float(base))
+        self.pid_worker.set_sweep_enabled(bool(st.get('sweep_enabled', self.pid_worker.sweep_enabled)))
+        self.pid_worker.set_sweep_timeout(float(st.get('sweep_timeout_sec', self.pid_worker.sweep_timeout_sec)))
+        self.pid_worker.set_sweep_duration(float(st.get('sweep_duration_sec', self.pid_worker.sweep_duration_sec)))
+        self.update_pid_gains()
+        self.update_pid_rate()
+        self.update_pid_target()
+
+    def closeEvent(self, event):
+        self.settings.flush()
+        super().closeEvent(event)
+
     def show_settings_dialog(self):
         if self.settings_dialog is None:
             self.settings_dialog = SettingsDialog(self)
@@ -607,6 +641,7 @@ class MainWindow(QMainWindow):
         self.camera_worker.set_mode(mode, path)
 
     def update_base_distance(self, val: float):
+        self.settings.set('base_distance_mm', float(val))
         self.camera_worker.set_base_distance(val)
         self.lbl_s2_base.setText(f"B (Base Distance): {val:.1f} mm")
 
@@ -645,6 +680,7 @@ class MainWindow(QMainWindow):
             self.settings_dialog.spin_cam_fov.blockSignals(False)
 
     def update_sweep_enabled(self, enabled: bool):
+        self.settings.set('sweep_enabled', bool(enabled))
         self.pid_worker.set_sweep_enabled(enabled)
         if self.settings_dialog and self.settings_dialog.isVisible():
             self.settings_dialog.chk_sweep_enabled.blockSignals(True)
@@ -652,6 +688,7 @@ class MainWindow(QMainWindow):
             self.settings_dialog.chk_sweep_enabled.blockSignals(False)
 
     def update_sweep_timeout(self, val: float):
+        self.settings.set('sweep_timeout_sec', float(val))
         self.pid_worker.set_sweep_timeout(val)
         if self.settings_dialog and self.settings_dialog.isVisible():
             self.settings_dialog.spin_sweep_delay.blockSignals(True)
@@ -659,6 +696,7 @@ class MainWindow(QMainWindow):
             self.settings_dialog.spin_sweep_delay.blockSignals(False)
 
     def update_sweep_duration(self, val: float):
+        self.settings.set('sweep_duration_sec', float(val))
         self.pid_worker.set_sweep_duration(val)
         if self.settings_dialog and self.settings_dialog.isVisible():
             self.settings_dialog.spin_sweep_duration.blockSignals(True)
@@ -951,13 +989,18 @@ class MainWindow(QMainWindow):
         ki = self.slider_ki.value()
         kd = self.slider_kd.value()
         self.pid_worker.set_gains(kp, ki, kd)
+        self.settings.set('pid_kp', kp)
+        self.settings.set('pid_ki', ki)
+        self.settings.set('pid_kd', kd)
 
     def update_pid_rate(self):
         hz = self.slider_pid_rate.value()
         self.pid_worker.set_rate_hz(hz)
+        self.settings.set('pid_rate_hz', int(hz))
 
     def update_pid_target(self):
         self.pid_worker.set_target(self.slider_target_x.value())
+        self.settings.set('pid_target_x', int(self.slider_target_x.value()))
 
     def toggle_pid(self, checked: bool):
         if checked:

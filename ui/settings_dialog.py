@@ -131,6 +131,10 @@ class SettingsDialog(QDialog):
             b = QPushButton(text)
             b.clicked.connect(lambda _=False, t=text, c=cmd: self.confirm_system(t, c))
             lay.addWidget(b)
+        b = QPushButton("Reset remembered settings (PID, B, sweep)")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.reset_settings)
+        lay.addWidget(b)
         lay.addStretch(1)
         return page
 
@@ -329,6 +333,11 @@ class SettingsDialog(QDialog):
         self.lbl_cal_status.setText("Saved calibration removed. Defaults apply after restart.")
 
     # ---------- misc ----------
+    def reset_settings(self):
+        if QMessageBox.question(self, "Reset settings", "Forget remembered settings and restart the app?") == QMessageBox.Yes:
+            self.main_window.settings.reset()
+            subprocess.Popen(["sudo", "-n", "systemctl", "restart", "lab-triangulacja"])
+
     def confirm_system(self, text, cmd):
         if QMessageBox.question(self, text, f"{text}?") == QMessageBox.Yes:
             subprocess.Popen(cmd)

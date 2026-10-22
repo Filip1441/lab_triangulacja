@@ -150,6 +150,7 @@ class PIDControllerWorker(QThread):
                 
                 if self.sweep_mode:
                     sweep_span = getattr(config, 'DEFAULT_SWEEP_RANGE_DEG', 25.0)
+                    sweep_speed = getattr(config, 'SWEEP_SERVO_SPEED', 500)
                     min_sweep = max(min_a, base_angle - sweep_span)
                     max_sweep = min(max_a, base_angle + sweep_span)
                     
@@ -157,13 +158,13 @@ class PIDControllerWorker(QThread):
                         self._sweep_initialized = True
                         self.sweep_angle = min_sweep
                         self.sweep_data = []
-                        self.hardware_manager.set_servo_angle(min_sweep)
+                        self.hardware_manager.set_servo_angle(min_sweep, speed=sweep_speed)
                         self.last_sent_angle = min_sweep
                     else:
                         step_inc = ((max_sweep - min_sweep) / max(0.5, self.sweep_duration_sec)) * loop_dt
                         self.sweep_angle += step_inc
                         if self.sweep_angle <= max_sweep:
-                            self.hardware_manager.set_servo_angle(self.sweep_angle)
+                            self.hardware_manager.set_servo_angle(self.sweep_angle, speed=sweep_speed)
                             self.last_sent_angle = self.sweep_angle
                             new_angle = self.sweep_angle
                         else:

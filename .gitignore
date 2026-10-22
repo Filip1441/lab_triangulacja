@@ -50,3 +50,6 @@ instrukcja/
 
 # Station-specific servo/camera calibration
 calibration.json
+
+# Remembered user settings (per station)
+settings.json
