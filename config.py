@@ -28,7 +28,7 @@ CAMERA_SENSOR_MODE = (1296, 972)  # Picamera2 raw mode covering the full sensor 
 DEFAULT_OFFSET_ANGLE_DEG = 90.0   # Reference angle: 90.0 deg is parallel to camera optical axis
 
 # Camera configuration
-DEFAULT_FOV_DEG = 7.91            # Horizontal FOV in degrees, full-sensor 640x480 frame (measured; re-measure after changing the lens)
+DEFAULT_FOV_DEG = 7.93            # Horizontal FOV in degrees, full-sensor 640x480 frame (measured; re-measure after changing the lens)
 DEFAULT_EXPOSURE_MS = 10.0        # Default camera exposure time in milliseconds (10.0 ms)
 
 # Servo calibration & limits (wire safety protections)
@@ -37,7 +37,7 @@ DEFAULT_EXPOSURE_MS = 10.0        # Default camera exposure time in milliseconds
 # so parallel is at 81.45 deg and hardware offset is -8.55 deg.
 # Re-measure with the auto-calibration in the hidden settings dialog (Cmd+, / Ctrl+,).
 DEFAULT_SERVO_BASE_ANGLE = 90.0   # Calibrated base angle in GUI (90.0 deg = parallel to camera optical axis)
-SERVO_HARDWARE_OFFSET = -8.55     # Offset added to logical angle: physical_angle = logical_angle + offset
+SERVO_HARDWARE_OFFSET = -8.56     # Offset added to logical angle: physical_angle = logical_angle + offset
 SERVO_MIN_LOGICAL_ANGLE = 40.0    # Lower logical limit in UI (maps to physical ~31.5 deg)
 SERVO_MAX_LOGICAL_ANGLE = 135.0   # Upper logical limit in UI (maps to physical ~126.5 deg)
 SERVO_MIN_ANGLE = 30.0            # Hard safety physical lower limit (prevents wire twisting)
@@ -53,7 +53,7 @@ DEFAULT_SWEEP_DURATION_SEC = 8.0  # Duration in seconds for sweep (spot is visib
 DEFAULT_SWEEP_RANGE_DEG = 25.0    # Safe sweep window around base angle (+/- degrees)
 
 # --- Auto-calibration ---
-DEFAULT_WALL_DISTANCE_MM = 1020.0  # Wall distance measured from the lens main plane, used by auto-calibration
+DEFAULT_WALL_DISTANCE_MM = 1000.0  # Wall distance measured from the lens main plane, used by auto-calibration
 
 # --- Admin access ---
 # Password for the small 'admin' button (hidden settings, calibration, shutdown). Not a secret: it only keeps
