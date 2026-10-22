@@ -23,7 +23,8 @@ DEFAULT_BASE_DISTANCE_MM = 70.0   # Calibrated distance between camera sensor an
 DEFAULT_FOCAL_LENGTH_MM = 3.6     # Camera lens focal length
 DEFAULT_SENSOR_WIDTH_MM = 3.6     # Physical width of the camera sensor
 DEFAULT_IMAGE_WIDTH_PX = 640      # Default capture width
-DEFAULT_IMAGE_HEIGHT_PX = 360     # Default capture height
+DEFAULT_IMAGE_HEIGHT_PX = 480     # Default capture height (4:3 = the whole sensor)
+CAMERA_SENSOR_MODE = (1296, 972)  # Picamera2 raw mode covering the full sensor area (2x2 binned, 46 fps)
 DEFAULT_OFFSET_ANGLE_DEG = 90.0   # Reference angle: 90.0 deg is parallel to camera optical axis
 
 # Camera configuration

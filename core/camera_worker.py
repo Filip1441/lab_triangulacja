@@ -136,7 +136,9 @@ class CameraWorker(QThread):
                 main={
                     "size": (config.DEFAULT_IMAGE_WIDTH_PX, config.DEFAULT_IMAGE_HEIGHT_PX),
                     "format": "BGR888"
-                }
+                },
+                raw={"size": tuple(config.CAMERA_SENSOR_MODE)},  # full-sensor mode, not the cropped 1080p one
+                buffer_count=3
             )
             picam2.configure(cam_config)
             picam2.start()
