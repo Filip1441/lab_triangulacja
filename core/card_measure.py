@@ -4,14 +4,32 @@ import cv2
 import numpy as np
 
 CARD_W_MM = 85.6   # ISO/IEC 7810 ID-1 (credit card)
-CARD_H_MM = 53.98
+
+
+def _longest_bright_run(row, level):
+    """Sub-pixel (left, right) edges of the longest run above `level` in a 1-D profile, or None."""
+    above = row > level
+    best, start = None, None
+    for i, v in enumerate(np.append(above, False)):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            if best is None or i - start > best[1] - best[0]:
+                best = (start, i)
+            start = None
+    if best is None or best[0] < 1 or best[1] >= len(row):
+        return None
+    a, b = best
+    left = (a - 1) + (level - row[a - 1]) / (row[a] - row[a - 1])
+    right = (b - 1) + (level - row[b - 1]) / (row[b] - row[b - 1])
+    return left, right
 
 
 def measure_card(frame, fov_deg):
     """
-    Finds a credit card (bright rectangle) in a BGR frame and returns its distance from the lens in mm,
-    from the pinhole model Z = f_px * real_size / size_px. Returns None if no card-like rectangle is found.
-    The card should face the camera squarely and be in focus.
+    Measures the card's width in pixels at several rows of the card's upper part and returns its distance from
+    the lens in mm (pinhole model Z = f_px * 85.6 mm / width_px). None if no card-like bright bar is found.
+    The card should face the camera squarely, be in focus, and be brighter than its background.
     """
     if frame is None:
         return None
@@ -20,23 +38,24 @@ def measure_card(frame, fov_deg):
     _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best = None
-    for c in contours:
-        if cv2.contourArea(c) < 0.03 * w * h:
-            continue
-        (_, _), (rw, rh), _ = cv2.minAreaRect(c)
-        long_px, short_px = max(rw, rh), min(rw, rh)
-        if short_px < 10:
-            continue
-        aspect = long_px / short_px
-        if abs(aspect - CARD_W_MM / CARD_H_MM) > 0.15:
-            continue
-        if best is None or long_px > best[0]:
-            best = (long_px, short_px, aspect)
-    if best is None:
+    if not contours:
         return None
-    long_px, short_px, aspect = best
+    c = max(contours, key=cv2.contourArea)
+    x, y, bw, bh = cv2.boundingRect(c)
+    if bw < 0.15 * w or bh < 0.1 * h:
+        return None
+    widths = []
+    for row in range(y + 25, min(h - 1, y + 25 + int(0.45 * bh)), 5):
+        prof = gray[row].astype(np.float32)
+        level = (np.percentile(prof, 5) + np.percentile(prof, 95)) / 2.0
+        edges = _longest_bright_run(prof, level)
+        if edges:
+            widths.append(edges[1] - edges[0])
+    if len(widths) < 5:
+        return None
+    width_px = float(np.median(widths))
+    spread = float(np.std(widths))
+    if width_px < 0.15 * w or spread > 0.02 * width_px:
+        return None  # unstable edges: not a clean rectangle
     f_px = (w / 2.0) / math.tan(math.radians(fov_deg / 2.0))
-    z_w = f_px * CARD_W_MM / long_px
-    z_h = f_px * CARD_H_MM / short_px
-    return {"z_mm": z_w, "z_height_mm": z_h, "width_px": long_px, "aspect": aspect}
+    return {"z_mm": f_px * CARD_W_MM / width_px, "width_px": width_px, "spread_px": spread}

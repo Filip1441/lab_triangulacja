@@ -234,10 +234,9 @@ class SettingsDialog(QDialog):
             self.lbl_card.setText("No card found. Put it on the wall facing the camera, in focus, filling a good part of the image.")
             return
         self.spin_cal_wall.setValue(res["z_mm"])
-        tilt = abs(res["z_mm"] - res["z_height_mm"]) / res["z_mm"] * 100
         self.lbl_card.setText(
-            f"Card {res['width_px']:.0f} px wide -> {res['z_mm']:.0f} mm (from height {res['z_height_mm']:.0f} mm, "
-            f"differ {tilt:.1f}%). Distance set. Accuracy follows the FOV value (+-1..3%).")
+            f"Card {res['width_px']:.1f} px wide (edge jitter {res['spread_px']:.2f} px) -> {res['z_mm']:.0f} mm. "
+            f"Distance set. Accuracy follows the FOV value (+-1..3%).")
 
     def on_release_toggled(self, released):
         hw = self.main_window.hardware
