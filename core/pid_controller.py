@@ -149,10 +149,11 @@ class PIDControllerWorker(QThread):
                         self._sweep_initialized = False
                 
                 if self.sweep_mode:
-                    sweep_span = getattr(config, 'DEFAULT_SWEEP_RANGE_DEG', 25.0)
+                    sweep_start = getattr(config, 'SWEEP_START_DEG', 0.0)
+                    sweep_end = getattr(config, 'SWEEP_END_DEG', 110.0)
                     sweep_speed = getattr(config, 'SWEEP_SERVO_SPEED', 500)
-                    min_sweep = max(min_a, base_angle - sweep_span)
-                    max_sweep = min(max_a, base_angle + sweep_span)
+                    min_sweep = max(min_a, sweep_start)   # one-way sweep, not symmetric around the base angle
+                    max_sweep = min(max_a, sweep_end)
                     
                     if not self._sweep_initialized:
                         self._sweep_initialized = True
