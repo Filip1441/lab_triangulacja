@@ -38,11 +38,11 @@ DEFAULT_EXPOSURE_MS = 10.0        # Default camera exposure time in milliseconds
 # Re-measure with the auto-calibration in the hidden settings dialog (Cmd+, / Ctrl+,).
 DEFAULT_SERVO_BASE_ANGLE = 90.0   # Calibrated base angle in GUI (90.0 deg = parallel to camera optical axis)
 SERVO_HARDWARE_OFFSET = -8.14     # Offset added to logical angle: physical_angle = logical_angle + offset
-SERVO_MIN_LOGICAL_ANGLE = 40.0    # Lower logical limit in UI (maps to physical ~31.5 deg)
-SERVO_MAX_LOGICAL_ANGLE = 135.0   # Upper logical limit in UI (maps to physical ~126.5 deg)
+SERVO_MIN_LOGICAL_ANGLE = 0.0     # Lower logical limit (no protection: 0 deg can be set)
+SERVO_MAX_LOGICAL_ANGLE = 180.0   # Upper logical limit
 SERVO_SLIDER_RANGE_DEG = 10.0     # Stage 1 'Servo Angle' slider spans base angle +/- this many degrees (fine adjustment)
-SERVO_MIN_ANGLE = 30.0            # Hard safety physical lower limit (prevents wire twisting)
-SERVO_MAX_ANGLE = 130.0           # Hard safety physical upper limit (prevents wire twisting)
+SERVO_MIN_ANGLE = 0.0              # Physical lower limit (the servo scale starts at 0; with the offset, logical 0 is sent as physical 0)
+SERVO_MAX_ANGLE = 180.0            # Physical upper limit
 SERVO_MIN_PULSE = 500             # microseconds (legacy pigpio)
 SERVO_MAX_PULSE = 2500            # microseconds (legacy pigpio)
 
@@ -53,7 +53,7 @@ DEFAULT_SWEEP_TIMEOUT_SEC = 5.0   # Time in seconds before sweep triggers when s
 DEFAULT_SWEEP_DURATION_SEC = 28.0 # Duration in seconds for a sweep (~2.5 deg/s over 70 deg: the spot is only ~8 deg wide in the image)
 SWEEP_SERVO_SPEED = 500           # ST3215 speed during sweep moves (steps/s, ~44 deg/s); normal moves use 1200
 SWEEP_START_DEG = 0.0             # Sweep runs one way from this logical angle ...
-SWEEP_END_DEG = 110.0             # ... to this one (clamped to SERVO_MIN/MAX_LOGICAL_ANGLE, i.e. 40..110 deg in practice)
+SWEEP_END_DEG = 110.0             # ... to this one (clamped to SERVO_MIN/MAX_LOGICAL_ANGLE)
 
 # --- Auto-calibration ---
 DEFAULT_WALL_DISTANCE_MM = 1000.0  # Wall distance measured from the lens main plane, used by auto-calibration
