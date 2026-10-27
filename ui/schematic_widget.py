@@ -74,7 +74,7 @@ class InteractiveSchematicWidget(QWidget):
         self.setMinimumWidth(180)
         
         # State
-        self.base_distance = getattr(config, 'DEFAULT_BASE_DISTANCE_MM', 70.0)
+        self.base_distance = getattr(config, 'DEFAULT_BASE_DISTANCE_MM', 72.0)
         self.angle_deg = getattr(config, 'DEFAULT_SERVO_BASE_ANGLE', 90.0)
         self.object_distance = 200.0 # Will be updated by MainWindow
         self.spot_x = None           # spot pixel detected by the camera (None = not detected)

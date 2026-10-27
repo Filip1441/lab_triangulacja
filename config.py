@@ -19,7 +19,7 @@ CAMERA_INDEX = 1  # Default USB camera index
 
 # --- Calibration Defaults ---
 # Default parameters for Analytical Modeling
-DEFAULT_BASE_DISTANCE_MM = 70.0   # Calibrated distance between camera sensor and servo rotation axis (70mm)
+DEFAULT_BASE_DISTANCE_MM = 72.0   # Smallest base: camera and laser housings touching (72 mm); students move the laser along the profile
 DEFAULT_FOCAL_LENGTH_MM = 3.6     # Camera lens focal length
 DEFAULT_SENSOR_WIDTH_MM = 3.6     # Physical width of the camera sensor
 DEFAULT_IMAGE_WIDTH_PX = 640      # Default capture width
