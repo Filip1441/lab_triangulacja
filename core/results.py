@@ -53,6 +53,33 @@ def purge_old():
     return removed
 
 
+def delete_all_results(extra_dirs=()):
+    """
+    Deletes every saved result package (wyniki_*.zip, leftover .tmp_* folders) and the CSV/PNG exports in extra_dirs.
+    Returns (files_deleted, bytes_freed).
+    """
+    count, freed = 0, 0
+    d = results_dir()
+    for name in os.listdir(d):
+        path = os.path.join(d, name)
+        if name.startswith(PACKAGE_PREFIX) and name.endswith(".zip") and os.path.isfile(path):
+            freed += os.path.getsize(path)
+            _remove(path)
+            count += 1
+        elif name.startswith(".tmp_") and os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+    for ed in extra_dirs:
+        if not os.path.isdir(ed):
+            continue
+        for name in os.listdir(ed):
+            path = os.path.join(ed, name)
+            if name.lower().endswith((".csv", ".png")) and os.path.isfile(path):
+                freed += os.path.getsize(path)
+                _remove(path)
+                count += 1
+    return count, freed
+
+
 def _remove(path):
     try:
         os.remove(path)

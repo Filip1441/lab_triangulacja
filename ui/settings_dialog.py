@@ -10,6 +10,7 @@ from core.calibration import CalibrationWorker, find_spot, offset_for_spot
 from core.card_measure import measure_card
 from core.pid_autotune import PidAutoTuneWorker
 from core.demo_script import DEMO_SCRIPT
+from core import results
 
 
 def _note(text):
@@ -191,6 +192,10 @@ class SettingsDialog(QDialog):
             b = QPushButton(text)
             b.clicked.connect(lambda _=False, t=text, c=cmd: self.confirm_system(t, c))
             lay.addWidget(b)
+        b = QPushButton("Delete all saved results (reset session)")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.delete_all_results)
+        lay.addWidget(b)
         b = QPushButton("Reset remembered settings (PID, B, sweep)")
         b.setObjectName("secondary")
         b.clicked.connect(self.reset_settings)
@@ -433,6 +438,17 @@ class SettingsDialog(QDialog):
         self._tune_done()
 
     # ---------- misc ----------
+    def delete_all_results(self):
+        """Between classes: removes all result ZIPs and exports from the SD card and the screenshots kept in memory."""
+        mw = self.main_window
+        if QMessageBox.question(self, "Delete all results",
+                                "Delete ALL saved result packages and CSV exports from the SD card?\nThis cannot be undone.") != QMessageBox.Yes:
+            return
+        n, size = results.delete_all_results([mw.data_logger.export_dir])
+        mw.s1_frames.clear()
+        mw.s2_verifications.clear()
+        QMessageBox.information(self, "Done", f"Deleted {n} file(s), freed {size / 1024 / 1024:.1f} MB.")
+
     def reset_settings(self):
         if QMessageBox.question(self, "Reset settings", "Forget remembered settings and restart the app?") == QMessageBox.Yes:
             self.main_window.settings.reset()
