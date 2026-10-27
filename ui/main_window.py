@@ -461,6 +461,9 @@ class MainWindow(QMainWindow):
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('#1e1e1e')
         self.plot_widget.setYRange(0, 640)
+        self.plot_widget.setLabel('left', 'X_px [px]')
+        self.plot_widget.setLabel('bottom', 'time [s]')
+        self.plot_widget.getAxis('bottom').setScale(1.0 / max(1, default_rate))
         self.plot_widget.setMinimumHeight(150)
         
         self.target_line = self.plot_widget.plot(pen=pg.mkPen('r', width=2))
@@ -470,6 +473,10 @@ class MainWindow(QMainWindow):
         self.plot_data_actual = np.zeros(100)
         
         plot_layout.addWidget(self.plot_widget)
+        self.lbl_s3_error = QLabel("Error e = target - X_px:  --- px")
+        self.lbl_s3_error.setAlignment(Qt.AlignCenter)
+        self.lbl_s3_error.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffa500; padding: 4px;")
+        plot_layout.addWidget(self.lbl_s3_error)
         layout.addWidget(plot_group)
         
         self.stack.addWidget(page)
@@ -998,6 +1005,7 @@ class MainWindow(QMainWindow):
     def update_pid_rate(self):
         hz = self.slider_pid_rate.value()
         self.pid_worker.set_rate_hz(hz)
+        self.plot_widget.getAxis('bottom').setScale(1.0 / max(1.0, float(hz)))   # x axis in seconds (one sample per PID tick)
         self.settings.set('pid_rate_hz', int(hz))
 
     def update_pid_target(self):
@@ -1021,6 +1029,11 @@ class MainWindow(QMainWindow):
         if self.stack.currentIndex() != 3:
             return
             
+        if actual >= 0:
+            self.lbl_s3_error.setText(f"Error e = target - X_px:  {error:+.1f} px")
+        else:
+            self.lbl_s3_error.setText("Error e = target - X_px:  spot lost")
+        
         self.plot_data_actual = np.roll(self.plot_data_actual, -1)
         self.plot_data_actual[-1] = actual
         
