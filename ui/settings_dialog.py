@@ -9,7 +9,7 @@ import config
 from core.calibration import CalibrationWorker, find_spot, offset_for_spot
 from core.card_measure import measure_card
 from core.pid_autotune import PidAutoTuneWorker
-from core.demo_script import DEMO_SCRIPT
+from core.demo_script import DEMO_SCRIPT, STARTER_TEMPLATE
 from core import results
 
 
@@ -150,7 +150,7 @@ class SettingsDialog(QDialog):
     def build_demo_tab(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addWidget(_note("The code editor starts empty. Paste the demo solution (full spot detection pipeline) "
+        lay.addWidget(_note("The code editor starts with outline comments only. Paste the demo solution (full spot detection pipeline) "
                             "when showing the exercise to someone."))
         b = QPushButton("Paste demo code into the editor")
         b.clicked.connect(lambda: self.paste_demo(False))
@@ -158,7 +158,7 @@ class SettingsDialog(QDialog):
         b = QPushButton("Paste demo code and run it")
         b.clicked.connect(lambda: self.paste_demo(True))
         lay.addWidget(b)
-        b = QPushButton("Clear the editor")
+        b = QPushButton("Reset the editor to the starter comments")
         b.setObjectName("secondary")
         b.clicked.connect(self.clear_editor)
         lay.addWidget(b)
@@ -167,7 +167,7 @@ class SettingsDialog(QDialog):
 
     def paste_demo(self, run):
         mw = self.main_window
-        if mw.txt_code.toPlainText().strip():
+        if mw.txt_code.toPlainText().strip() != STARTER_TEMPLATE.strip():
             if QMessageBox.question(self, "Replace code", "The editor is not empty. Replace its content?") != QMessageBox.Yes:
                 return
         mw.stop_custom_script()
@@ -180,7 +180,7 @@ class SettingsDialog(QDialog):
     def clear_editor(self):
         mw = self.main_window
         mw.stop_custom_script()
-        mw.txt_code.clear()
+        mw.txt_code.setPlainText(STARTER_TEMPLATE)
 
     def build_system_tab(self):
         page = QWidget()

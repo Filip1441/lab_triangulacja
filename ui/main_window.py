@@ -31,6 +31,7 @@ from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
 from ui.export_page import ExportPage
+from core.demo_script import STARTER_TEMPLATE
 from ui.admin_gate import request_admin_access
 from utils.settings_store import SettingsStore
 from core.share_server import ShareServer
@@ -218,7 +219,8 @@ class MainWindow(QMainWindow):
         # Code Editor
         self.txt_code = QTextEdit()
         self.txt_code.setFont(QFont("Courier", 10))
-        # The editor starts completely empty; the demo solution lives in the admin window.
+        # The editor starts with general outline comments only; the demo solution lives in the admin window.
+        self.txt_code.setPlainText(STARTER_TEMPLATE)
         
         # Syntax highlighter
         self.highlighter = PythonSyntaxHighlighter(self.txt_code.document())
@@ -711,6 +713,9 @@ class MainWindow(QMainWindow):
 
     # --- Stage 0 Python Scripting Logic ---
     def on_code_changed(self):
+        # Comment-only code (the starter outline) has nothing to run: do not auto-run it
+        if not any(l.strip() and not l.strip().startswith('#') for l in self.txt_code.toPlainText().splitlines()):
+            return
         if hasattr(self, 'chk_autorun') and self.chk_autorun.isChecked():
             # Restart debounce timer on every keystroke
             self.autorun_timer.start()
