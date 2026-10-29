@@ -2,8 +2,10 @@ import math
 import subprocess
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QWidget, QMessageBox,
-    QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox
+    QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox, QStackedWidget, QSpinBox, QProgressBar
 )
+import numpy as np
+import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer
 import config
 from core.calibration import CalibrationWorker, find_spot, offset_for_spot
@@ -11,6 +13,7 @@ from core.card_measure import measure_card
 from core.pid_autotune import PidAutoTuneWorker
 from core.demo_script import DEMO_SCRIPT, STARTER_TEMPLATE
 from core import results
+from core import profile_scan as ps
 
 
 def _note(text):
@@ -31,6 +34,10 @@ class SettingsDialog(QDialog):
         self.schematic = main_window.schematic
         self.cal_worker = None
         self.tune_worker = None
+        self.profile_worker = None
+        self.profile_flat = None
+        self.profile_wave = None
+        self.profile_kind = "flat"
         self.pending_cal = None
         self.prev_logical = None
 
@@ -46,6 +53,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self.build_tracking_tab(), "Tracking")
         self.tabs.addTab(self.build_instructor_tab(), "Instructor")
         self.tabs.addTab(self.build_demo_tab(), "Demo")
+        self.tabs.addTab(self.build_profile_tab(), "Profile")
         self.tabs.addTab(self.build_system_tab(), "System")
         layout.addWidget(self.tabs)
 
@@ -181,6 +189,184 @@ class SettingsDialog(QDialog):
         mw = self.main_window
         mw.stop_custom_script()
         mw.txt_code.setPlainText(STARTER_TEMPLATE)
+
+    # ---------- profile scan demo (printed double-sided plate: flat / wavy) ----------
+    def build_profile_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        self.profile_stack = QStackedWidget()
+        lay.addWidget(self.profile_stack)
+
+        # 0: flat side instruction + settings
+        p0 = QWidget()
+        l0 = QVBoxLayout(p0)
+        l0.addWidget(_note(
+            "Step 1 of 2: mount the plate on the rail with the FLAT side toward the camera. The plate's axis of rotation "
+            "stays in the same place for both sides. Laser spot must hit the plate, camera sees about 14 cm of it at 1 m."))
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Distance camera to flat face (mm):"))
+        self.spin_prof_z = QDoubleSpinBox()
+        self.spin_prof_z.setRange(300.0, 3000.0)
+        self.spin_prof_z.setDecimals(1)
+        self.spin_prof_z.setValue(1000.0)
+        row.addWidget(self.spin_prof_z)
+        l0.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Servo speed during the scan (steps/s, 6 = 0.5 deg/s):"))
+        self.spin_prof_speed = QSpinBox()
+        self.spin_prof_speed.setRange(2, 40)
+        self.spin_prof_speed.setValue(6)
+        row.addWidget(self.spin_prof_speed)
+        l0.addLayout(row)
+        l0.addWidget(_note("B (camera-laser distance) comes from the Calibration tab."))
+        b = QPushButton("Flat side is set: start scan")
+        b.clicked.connect(lambda: self.start_profile_scan("flat"))
+        l0.addWidget(b)
+        l0.addStretch(1)
+        self.profile_stack.addWidget(p0)
+
+        # 1: scanning
+        p1 = QWidget()
+        l1 = QVBoxLayout(p1)
+        self.lbl_prof_status = _note("")
+        l1.addWidget(self.lbl_prof_status)
+        bar = QProgressBar()
+        bar.setRange(0, 0)
+        l1.addWidget(bar)
+        b = QPushButton("Cancel")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.cancel_profile_scan)
+        l1.addWidget(b)
+        l1.addStretch(1)
+        self.profile_stack.addWidget(p1)
+
+        # 2: curved side instruction
+        p2 = QWidget()
+        l2 = QVBoxLayout(p2)
+        self.lbl_prof_flat = _note("")
+        l2.addWidget(self.lbl_prof_flat)
+        l2.addWidget(_note(
+            "Step 2 of 2: rotate the plate by 180 degrees so the CURVED side faces the camera, up to the same stop. "
+            "Do not move the rail."))
+        b = QPushButton("Curved side is set: start scan")
+        b.clicked.connect(lambda: self.start_profile_scan("wave"))
+        l2.addWidget(b)
+        b = QPushButton("Back to step 1")
+        b.setObjectName("secondary")
+        b.clicked.connect(lambda: self.profile_stack.setCurrentIndex(0))
+        l2.addWidget(b)
+        l2.addStretch(1)
+        self.profile_stack.addWidget(p2)
+
+        # 3: result
+        p3 = QWidget()
+        l3 = QVBoxLayout(p3)
+        self.prof_plot = pg.PlotWidget()
+        self.prof_plot.setBackground("#1e1e1e")
+        self.prof_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.prof_plot.setLabel("bottom", "Position across the plate (mm)")
+        self.prof_plot.setLabel("left", "Height toward camera (mm)")
+        self.prof_plot.addLegend()
+        self.prof_plot.setMinimumHeight(260)
+        l3.addWidget(self.prof_plot)
+        self.lbl_prof_result = _note("")
+        l3.addWidget(self.lbl_prof_result)
+        row = QHBoxLayout()
+        self.chk_prof_mirror = QCheckBox("Mirror the reference profile")
+        self.chk_prof_mirror.toggled.connect(self.draw_profile_result)
+        row.addWidget(self.chk_prof_mirror)
+        b = QPushButton("New measurement")
+        b.clicked.connect(lambda: self.profile_stack.setCurrentIndex(0))
+        row.addWidget(b)
+        l3.addLayout(row)
+        self.profile_stack.addWidget(p3)
+
+        if not self.main_window.hardware.use_st3215:
+            p0.setEnabled(False)
+        return page
+
+    def start_profile_scan(self, kind):
+        mw = self.main_window
+        if self.profile_worker and self.profile_worker.isRunning():
+            return
+        if mw.pid_worker.running:
+            mw.btn_toggle_pid.setChecked(False)
+        if self.chk_release.isChecked():
+            self.chk_release.setChecked(False)
+        if mw.camera_worker.last_frame is None:
+            QMessageBox.warning(self, "Profile", "No camera frames yet.")
+            return
+        self.profile_kind = kind
+        self.prev_logical = mw.hardware.get_commanded_angle()
+        self.set_cal_busy(True)
+        self.profile_stack.setCurrentIndex(1)
+        self.lbl_prof_status.setText("Starting...")
+        w = ps.ProfileScanWorker(mw.hardware, mw.camera_worker, self.spin_cal_base.value(), mw.camera_fov,
+                             self.spin_prof_z.value(), self.spin_prof_speed.value(), self)
+        w.progress.connect(self.lbl_prof_status.setText)
+        w.result.connect(self.on_profile_scan_done)
+        w.failed.connect(self.on_profile_scan_failed)
+        self.profile_worker = w
+        w.start()
+
+    def cancel_profile_scan(self):
+        if self.profile_worker and self.profile_worker.isRunning():
+            self.profile_worker.stop()
+
+    def on_profile_scan_failed(self, msg):
+        self.finish_cal_motion()
+        self.profile_stack.setCurrentIndex(2 if self.profile_kind == "wave" else 0)
+        QMessageBox.warning(self, "Profile scan", msg)
+
+    def on_profile_scan_done(self, res):
+        self.finish_cal_motion()
+        mw = self.main_window
+        z_ref = self.spin_prof_z.value()
+        base, fov, fw = self.spin_cal_base.value(), mw.camera_fov, res["frame_w"]
+        if self.profile_kind == "flat":
+            delta = ps.flat_correction_deg(res["alpha"], res["x_px"], z_ref, base, fov, fw)
+            if delta is None or res["points"] < 30:
+                self.profile_stack.setCurrentIndex(0)
+                QMessageBox.warning(self, "Profile scan", "Spot not seen well enough on the flat side. Check aim and exposure.")
+                return
+            x_mm, h = ps.to_profile(res["alpha"], res["x_px"], delta, z_ref, base, fov, fw)
+            self.profile_flat = {"delta": delta, "x": x_mm, "h": h, "std": float(np.std(h)),
+                                 "fit_rms": res["fit_rms_deg"]}
+            self.lbl_prof_flat.setText(
+                f"Flat side done: {res['points']} points, angle correction {delta:+.3f} deg, "
+                f"flatness error {self.profile_flat['std']:.2f} mm rms, encoder fit {res['fit_rms_deg']:.3f} deg.")
+            self.profile_stack.setCurrentIndex(2)
+        else:
+            f = self.profile_flat
+            x_mm, h = ps.to_profile(res["alpha"], res["x_px"], f["delta"], z_ref, base, fov, fw)
+            self.profile_wave = {"x": x_mm, "h": h, "fit_rms": res["fit_rms_deg"], "points": res["points"]}
+            self.draw_profile_result()
+            self.profile_stack.setCurrentIndex(3)
+
+    def draw_profile_result(self, *_):
+        f, w = self.profile_flat, getattr(self, "profile_wave", None)
+        if not f or not w:
+            return
+        pl = self.prof_plot
+        pl.clear()
+        pl.plot(f["x"], f["h"], pen=None, symbol="o", symbolSize=3, symbolBrush=(140, 140, 140), name="flat side (should be 0)")
+        pl.plot(w["x"], w["h"], pen=None, symbol="o", symbolSize=3, symbolBrush=(255, 170, 60), name="measured, curved side")
+        xc, hc = ps.bin_profile(w["x"], w["h"])
+        pl.plot(xc, hc, pen=pg.mkPen((255, 120, 0), width=3), name="measured, smoothed")
+        cmp_ = ps.compare_with_model(xc, hc, self.chk_prof_mirror.isChecked())
+        if cmp_ is None:
+            self.lbl_prof_result.setText("Too few points on the curved side.")
+            return
+        shift, rms, level = cmp_
+        xm = np.linspace(shift - ps.PLATE_WIDTH_MM / 2, shift + ps.PLATE_WIDTH_MM / 2, 200)
+        ref = ps.plate_height(xm - shift, self.chk_prof_mirror.isChecked()) + level
+        pl.plot(xm, ref, pen=pg.mkPen((90, 220, 120), width=2, style=Qt.DashLine), name="actual plate profile")
+        inside = np.abs(xc - shift) <= ps.PLATE_WIDTH_MM / 2
+        err = hc[inside] - (ps.plate_height(xc[inside] - shift, self.chk_prof_mirror.isChecked()) + level)
+        self.lbl_prof_result.setText(
+            f"Error against the true plate profile: {rms:.2f} mm rms, {np.abs(err).max():.2f} mm max "
+            f"(profile height 12 mm peak to peak). Plate placed {shift:+.0f} mm from the camera axis, "
+            f"level offset {level:+.2f} mm. Flat side was flat to {f['std']:.2f} mm.")
 
     def build_system_tab(self):
         page = QWidget()
@@ -465,6 +651,9 @@ class SettingsDialog(QDialog):
         if self.tune_worker and self.tune_worker.isRunning():
             self.tune_worker.stop()
             self.tune_worker.wait(5000)
+        if self.profile_worker and self.profile_worker.isRunning():
+            self.profile_worker.stop()
+            self.profile_worker.wait(5000)
         if self.chk_release.isChecked():
             self.chk_release.setChecked(False)
         super().closeEvent(event)
