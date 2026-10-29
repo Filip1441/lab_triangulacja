@@ -203,8 +203,11 @@ class SettingsDialog(QDialog):
         l0.addWidget(_note(
             "Step 1 of 2: mount the plate on the rail with the FLAT side toward the camera. The plate's axis of rotation "
             "stays in the same place for both sides. Laser spot must hit the plate, camera sees about 14 cm of it at 1 m."))
+        self.chk_prof_auto_z = QCheckBox("Measure the distance automatically (PID locks the spot on the flat face)")
+        self.chk_prof_auto_z.setChecked(True)
+        l0.addWidget(self.chk_prof_auto_z)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Distance camera to flat face (mm):"))
+        row.addWidget(QLabel("Distance camera to flat face (mm), measured or typed:"))
         self.spin_prof_z = QDoubleSpinBox()
         self.spin_prof_z.setRange(300.0, 3000.0)
         self.spin_prof_z.setDecimals(1)
@@ -298,11 +301,57 @@ class SettingsDialog(QDialog):
             return
         self.profile_kind = kind
         self.prev_logical = mw.hardware.get_commanded_angle()
+        if kind == "flat" and self.chk_prof_auto_z.isChecked():
+            self.pid_distance_start()
+            return
+        self.launch_profile_scan()
+
+    def pid_distance_start(self):
+        """The PID centres the spot on the flat face; then B*tan(alpha) with the measured angle gives the distance."""
+        mw = self.main_window
+        self.profile_stack.setCurrentIndex(1)
+        self.lbl_prof_status.setText("PID is locking the spot on the flat face...")
+        self.pid_z_samples = []
+        mw.slider_target_x.setValue(320)
+        mw.btn_toggle_pid.setChecked(True)
+        QTimer.singleShot(4000, self.pid_distance_collect)
+
+    def pid_distance_collect(self):
+        self.lbl_prof_status.setText("Measuring the distance...")
+        self.pid_timer = QTimer(self)
+        self.pid_timer.timeout.connect(self.pid_distance_sample)
+        self.pid_timer.start(50)
+        QTimer.singleShot(2000, self.pid_distance_finish)
+
+    def pid_distance_sample(self):
+        mw = self.main_window
+        if mw.current_spot_x is not None:
+            self.pid_z_samples.append((mw.hardware.get_servo_angle(), mw.current_spot_x))
+
+    def pid_distance_finish(self):
+        mw = self.main_window
+        self.pid_timer.stop()
+        mw.btn_toggle_pid.setChecked(False)
+        if len(self.pid_z_samples) < 20:
+            self.profile_stack.setCurrentIndex(0)
+            QMessageBox.warning(self, "Profile", "PID could not hold the spot. Check that the laser hits the flat face.")
+            return
+        a, x = np.array(self.pid_z_samples).T
+        z = float(np.nanmedian(ps.distance_mm(a, x, self.spin_cal_base.value(), mw.camera_fov)))
+        self.spin_prof_z.setValue(z)
+        self.launch_profile_scan()
+
+    def launch_profile_scan(self):
+        mw = self.main_window
+        if self.profile_kind == "wave" and self.profile_flat:
+            z_ref = self.profile_flat["z_ref"]   # both sides share one reference plane
+        else:
+            z_ref = self.spin_prof_z.value()
         self.set_cal_busy(True)
         self.profile_stack.setCurrentIndex(1)
         self.lbl_prof_status.setText("Starting...")
         w = ps.ProfileScanWorker(mw.hardware, mw.camera_worker, self.spin_cal_base.value(), mw.camera_fov,
-                             self.spin_prof_z.value(), self.spin_prof_speed.value(), self)
+                                 z_ref, self.spin_prof_speed.value(), self)
         w.progress.connect(self.lbl_prof_status.setText)
         w.result.connect(self.on_profile_scan_done)
         w.failed.connect(self.on_profile_scan_failed)
@@ -321,7 +370,7 @@ class SettingsDialog(QDialog):
     def on_profile_scan_done(self, res):
         self.finish_cal_motion()
         mw = self.main_window
-        z_ref = self.spin_prof_z.value()
+        z_ref = self.profile_flat["z_ref"] if self.profile_kind == "wave" else self.spin_prof_z.value()
         base, fov, fw = self.spin_cal_base.value(), mw.camera_fov, res["frame_w"]
         if self.profile_kind == "flat":
             delta = ps.flat_correction_deg(res["alpha"], res["x_px"], z_ref, base, fov, fw)
@@ -330,16 +379,26 @@ class SettingsDialog(QDialog):
                 QMessageBox.warning(self, "Profile scan", "Spot not seen well enough on the flat side. Check aim and exposure.")
                 return
             x_mm, h = ps.to_profile(res["alpha"], res["x_px"], delta, z_ref, base, fov, fw)
-            self.profile_flat = {"delta": delta, "x": x_mm, "h": h, "std": float(np.std(h)),
+            self.profile_flat = {"z_ref": z_ref, "delta": delta, "x": x_mm, "h": h, "std": float(np.std(h)),
                                  "fit_rms": res["fit_rms_deg"]}
             self.lbl_prof_flat.setText(
-                f"Flat side done: {res['points']} points, angle correction {delta:+.3f} deg, "
+                f"Distance to the flat face {z_ref:.0f} mm. Flat side done: {res['points']} points, angle correction {delta:+.3f} deg, "
                 f"flatness error {self.profile_flat['std']:.2f} mm rms, encoder fit {res['fit_rms_deg']:.3f} deg.")
             self.profile_stack.setCurrentIndex(2)
         else:
             f = self.profile_flat
             x_mm, h = ps.to_profile(res["alpha"], res["x_px"], f["delta"], z_ref, base, fov, fw)
-            self.profile_wave = {"x": x_mm, "h": h, "fit_rms": res["fit_rms_deg"], "points": res["points"]}
+            ext = ps.find_plate_extent(x_mm, h)
+            scale = 1.0
+            if ext and 0.96 <= ps.PLATE_WIDTH_MM / (ext[1] - ext[0]) <= 1.04:   # larger mismatch = edge not clean, ignore
+                scale = ps.PLATE_WIDTH_MM / (ext[1] - ext[0])   # the plate's known 100 mm calibrates the lateral axis
+                ext = (ext[0] * scale, ext[1] * scale)
+                x_mm = x_mm * scale
+                self.profile_flat["x"] = self.profile_flat["x"] * scale
+            else:
+                ext = None
+            self.profile_wave = {"x": x_mm, "h": h, "fit_rms": res["fit_rms_deg"], "points": res["points"],
+                                 "extent": ext, "scale": scale}
             self.draw_profile_result()
             self.profile_stack.setCurrentIndex(3)
 
@@ -353,7 +412,9 @@ class SettingsDialog(QDialog):
         pl.plot(w["x"], w["h"], pen=None, symbol="o", symbolSize=3, symbolBrush=(255, 170, 60), name="measured, curved side")
         xc, hc = ps.bin_profile(w["x"], w["h"])
         pl.plot(xc, hc, pen=pg.mkPen((255, 120, 0), width=3), name="measured, smoothed")
-        cmp_ = ps.compare_with_model(xc, hc, self.chk_prof_mirror.isChecked())
+        ext = w.get("extent")
+        fixed = (ext[0] + ext[1]) / 2.0 if ext else None
+        cmp_ = ps.compare_with_model(xc, hc, self.chk_prof_mirror.isChecked(), fixed)
         if cmp_ is None:
             self.lbl_prof_result.setText("Too few points on the curved side.")
             return
@@ -366,7 +427,9 @@ class SettingsDialog(QDialog):
         self.lbl_prof_result.setText(
             f"Error against the true plate profile: {rms:.2f} mm rms, {np.abs(err).max():.2f} mm max "
             f"(profile height 12 mm peak to peak). Plate placed {shift:+.0f} mm from the camera axis, "
-            f"level offset {level:+.2f} mm. Flat side was flat to {f['std']:.2f} mm.")
+            f"level offset {level:+.2f} mm. Flat side was flat to {f['std']:.2f} mm. "
+            + (f"Plate edges found at {ext[0]:+.0f} and {ext[1]:+.0f} mm (the known 100 mm sets the lateral scale; "
+               f"correction {w['scale']:.3f})." if ext else "Plate edges not both seen, placement searched."))
 
     def build_system_tab(self):
         page = QWidget()

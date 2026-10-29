@@ -213,12 +213,32 @@ def bin_profile(x_mm, h_mm, width_mm=2.0):
     return np.array(xc), np.array(hc)
 
 
-def compare_with_model(xc, hc, mirror=False):
-    """Best lateral shift of the ideal plate profile onto the measured one: (shift_mm, rms_mm, level_mm)."""
+def find_plate_extent(x_mm, h_mm, max_h=20.0, max_gap=6.0):
+    """
+    Lateral extent (left, right) of the plate: the longest run of spots lying within max_h of the flat plane.
+    Spots past the plate edge land on the far background, so the distance jumps and the run ends.
+    """
+    m = np.abs(h_mm) < max_h
+    if m.sum() < 10:
+        return None
+    x = np.sort(x_mm[m])
+    breaks = np.where(np.diff(x) > max_gap)[0]
+    starts = np.concatenate([[0], breaks + 1])
+    ends = np.concatenate([breaks, [len(x) - 1]])
+    i = int(np.argmax(x[ends] - x[starts]))
+    return float(x[starts[i]]), float(x[ends[i]])
+
+
+def compare_with_model(xc, hc, mirror=False, fixed_shift=None):
+    """
+    Ideal plate profile laid onto the measured one: (shift_mm, rms_mm, level_mm). The lateral shift is searched
+    unless fixed_shift (plate centre found from its edges) is given.
+    """
     if len(xc) < 5:
         return None
     best = None
-    for s in np.arange(-30.0, 30.01, 0.5):
+    shifts = [fixed_shift] if fixed_shift is not None else np.arange(-30.0, 30.01, 0.5)
+    for s in shifts:
         inside = np.abs(xc - s) <= PLATE_WIDTH_MM / 2
         if inside.sum() < 5:
             continue
