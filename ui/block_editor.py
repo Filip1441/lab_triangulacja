@@ -15,6 +15,41 @@ SLOT_H = 14
 THUMB_W, THUMB_H = 48, 36
 
 
+# One look for every block: a dark card with a coloured stripe on the left
+CARD = "#34373e"        # leaf block
+CARD_BOX = "#26282d"    # container (loop, decisions): darker, so nested blocks stand out
+EDGE = "#4a4e57"
+TEXT = "#eceff4"
+MUTED = "#9aa0aa"
+ARROW = "#7b818c"
+ERROR = "#ff5d5d"
+
+
+def _card_style(col, name, bg, error=False):
+    edge = f"2px solid {ERROR}" if error else f"1px solid {EDGE}"
+    return (
+        f"QFrame#{name}{{background:{bg}; border:{edge}; border-left:5px solid {col}; border-radius:6px;}}"
+        f"QLabel{{background:transparent; color:{TEXT}; font-size:11px;}}"
+        f"QLabel#title{{font-size:12px; font-weight:bold; min-width:132px;}}"
+        f"QLabel#value{{font-weight:bold; min-width:38px;}}"
+        f"QSlider{{background:transparent;}}"
+        f"QSlider::groove:horizontal{{height:4px; background:#555a64; border-radius:2px;}}"
+        f"QSlider::sub-page:horizontal{{background:{col}; border-radius:2px;}}"
+        f"QSlider::handle:horizontal{{background:#f4f6f8; width:12px; height:12px; margin:-4px 0; border-radius:6px; border:none;}}"
+        f"QComboBox{{background:#454952; color:{TEXT}; border:1px solid {EDGE}; border-radius:4px; padding:1px 6px; font-size:11px;}}"
+        f"QComboBox QAbstractItemView{{background:#2b2d33; color:{TEXT}; selection-background-color:{col};}}"
+    )
+
+
+def _close_button():
+    btn = QPushButton("\u2715")
+    btn.setFixedSize(18, 18)
+    btn.setCursor(Qt.PointingHandCursor)
+    btn.setStyleSheet(f"QPushButton{{background:#454952; color:{MUTED}; border:none; border-radius:9px; padding:0; font-size:10px;}}"
+                      f"QPushButton:hover{{background:{ERROR}; color:white;}}")
+    return btn
+
+
 def _darker(color, f=0.75):
     c = QColor(color)
     return QColor(int(c.red() * f), int(c.green() * f), int(c.blue() * f)).name()
@@ -28,9 +63,11 @@ class PaletteItem(QLabel):
         self.btype = btype
         self.editor = editor
         col = B.CATEGORY_COLORS[d.category]
+        self.setFixedWidth(120)
         self.setStyleSheet(
-            f"background:{col}; color:white; font-weight:bold; border-radius:6px; padding:3px 7px; font-size:11px; "
-            f"border-bottom:2px solid {_darker(col)};")
+            f"QLabel{{background:{CARD}; color:{TEXT}; font-size:11px; font-weight:bold; padding:3px 8px; "
+            f"border:1px solid {EDGE}; border-left:5px solid {col}; border-radius:5px;}}"
+            f"QLabel:hover{{background:#434752;}}")
         self.setToolTip(d.help)
         self.setCursor(Qt.OpenHandCursor)
         self._press = None
@@ -92,7 +129,7 @@ class DropSlot(QWidget):
             p.setBrush(QColor("#4daafc"))
             p.drawRoundedRect(10, self.height() // 2 - 3, self.width() - 20, 6, 3, 3)
             return
-        col = QColor("#8a8f98")
+        col = QColor(ARROW)
         p.setPen(QPen(col, 2))
         p.drawLine(cx, 0, cx, self.height() - 5)
         p.setBrush(col)
@@ -120,7 +157,7 @@ class BlockWidget(QFrame):
         head = QHBoxLayout()
         head.setSpacing(8)
         self.title = QLabel(d.title)
-        self.title.setStyleSheet("color:white; font-weight:bold; font-size:12px; background:transparent;")
+        self.title.setObjectName("title")
         self.title.setCursor(Qt.OpenHandCursor)
         head.addWidget(self.title)
         for spec in d.params:
@@ -130,20 +167,17 @@ class BlockWidget(QFrame):
         if d.preview:
             self.thumb = QLabel()
             self.thumb.setFixedSize(THUMB_W, THUMB_H)
-            self.thumb.setStyleSheet("background:#101010; border-radius:3px;")
+            self.thumb.setStyleSheet(f"background:#0d0d10; border:1px solid {EDGE}; border-radius:3px;")
             self.thumb.setAlignment(Qt.AlignCenter)
             head.addWidget(self.thumb)
-        btn = QPushButton("\u2715")
-        btn.setFixedSize(18, 18)
-        btn.setStyleSheet("QPushButton{background:rgba(0,0,0,70);color:white;border-radius:9px;padding:0;font-size:10px;}"
-                          "QPushButton:hover{background:rgba(0,0,0,140);}")
+        btn = _close_button()
         btn.clicked.connect(lambda: editor.delete(node["id"]))
         head.addWidget(btn, 0, Qt.AlignTop)
         outer.addLayout(head)
 
         self.err = QLabel()
         self.err.setWordWrap(True)
-        self.err.setStyleSheet("color:#ffd5d5; background:rgba(160,0,0,160); border-radius:3px; padding:2px 6px; font-size:11px;")
+        self.err.setStyleSheet("color:#ffdede; background:#6b2328; border-radius:4px; padding:2px 8px; font-size:11px;")
         self.err.hide()
         outer.addWidget(self.err)
 
@@ -153,9 +187,7 @@ class BlockWidget(QFrame):
             outer.addLayout(self.inner)
 
     def _style(self, error):
-        border = "#ff4d4d" if error else _darker(self.col)
-        return (f"QFrame#block{{background:{self.col}; border-radius:7px; border:{3 if error else 1}px solid {border};}}"
-                f"QLabel{{background:transparent;}}")
+        return _card_style(self.col, "block", CARD_BOX if self.d.container else CARD, error)
 
     def set_error(self, msg):
         self.setStyleSheet(self._style(bool(msg)))
@@ -165,7 +197,7 @@ class BlockWidget(QFrame):
     def _param_row(self, spec):
         row = QHBoxLayout()
         lab = QLabel(spec["label"])
-        lab.setStyleSheet("color:white; background:transparent; font-size:11px;")
+        lab.setStyleSheet(f"color:{MUTED};")
         row.addWidget(lab)
         node = self.node
         if spec["kind"] == "int":
@@ -175,7 +207,8 @@ class BlockWidget(QFrame):
             sl.setRange(0, (spec["max"] - spec["min"]) // step)
             sl.setValue((int(node["p"][spec["key"]]) - spec["min"]) // step)
             val = QLabel()
-            val.setStyleSheet("color:white; font-weight:bold; background:transparent; font-size:11px; min-width:40px;")
+            val.setObjectName("value")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             val.setText(f"{node['p'][spec['key']]} {spec.get('unit', '')}".strip())
 
             def changed(v, spec=spec, val=val, step=step):
@@ -227,20 +260,28 @@ class BlockEditor(QWidget):
         # Palette: a horizontal strip on top, one column per category
         pal_scroll = QScrollArea()
         pal_scroll.setWidgetResizable(True)
-        pal_scroll.setFixedHeight(142)
+        pal_scroll.setFixedHeight(122)
+        pal_scroll.setStyleSheet(f"QScrollArea{{border:1px solid {EDGE}; border-radius:6px;}}")
         pal_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         pal = QWidget()
         pl = QHBoxLayout(pal)
         pl.setContentsMargins(6, 4, 6, 4)
         pl.setSpacing(10)
+        columns = []
         for name, types in B.PALETTE:
+            if name == "Timing":
+                columns[0].append((name, types))   # shares the first column with Camera
+            else:
+                columns.append([(name, types)])
+        for groups in columns:
             col = QVBoxLayout()
             col.setSpacing(3)
-            h = QLabel(name.upper())
-            h.setStyleSheet("color:#4daafc; font-weight:bold; font-size:10px;")
-            col.addWidget(h)
-            for t in types:
-                col.addWidget(PaletteItem(t, self))
+            for name, types in groups:
+                h = QLabel(name.upper())
+                h.setStyleSheet(f"color:{MUTED}; font-weight:bold; font-size:10px; letter-spacing:1px; padding-top:2px;")
+                col.addWidget(h)
+                for t in types:
+                    col.addWidget(PaletteItem(t, self))
             col.addStretch(1)
             pl.addLayout(col)
         pl.addStretch(1)
@@ -253,9 +294,11 @@ class BlockEditor(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setStyleSheet(f"QScrollArea{{border:1px solid {EDGE}; border-radius:6px;}}")
         self.view.addWidget(self.scroll)
         self.code_view = QTextEdit()
         self.code_view.setReadOnly(True)
+        self.code_view.setStyleSheet(f"QTextEdit{{border:1px solid {EDGE}; border-radius:6px;}}")
         self.code_view.setFont(QFont("Courier", 10))
         self.highlighter = PythonSyntaxHighlighter(self.code_view.document())
         self.view.addWidget(self.code_view)
@@ -374,18 +417,20 @@ class BlockEditor(QWidget):
 
         setup = QFrame()
         setup.setObjectName("block")
-        col = "#7a63b8"
-        setup.setStyleSheet(f"QFrame#block{{background:{col}; border-radius:8px; border:2px solid {_darker(col)};}}"
-                            "QLabel{background:transparent;color:white;}")
+        setup.setStyleSheet(_card_style(B.CATEGORY_COLORS["setup"], "block", CARD))
         sl = QHBoxLayout(setup)
+        sl.setContentsMargins(6, 3, 6, 4)
+        sl.setSpacing(8)
         t = QLabel("Set camera exposure")
-        t.setStyleSheet("font-weight:bold;")
+        t.setObjectName("title")
         sl.addWidget(t)
         s = QSlider(Qt.Horizontal)
+        s.setMinimumWidth(70)
         s.setRange(1, 30)
         s.setValue(int(self.program["exposure_ms"]))
         v = QLabel(f"{self.program['exposure_ms']} ms")
-        v.setStyleSheet("font-weight:bold; min-width:50px;")
+        v.setObjectName("value")
+        v.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         def exp_changed(x):
             self.program["exposure_ms"] = x
@@ -402,12 +447,12 @@ class BlockEditor(QWidget):
 
         loop = QFrame()
         loop.setObjectName("loop")
-        loop.setStyleSheet("QFrame#loop{background:#2b2b2e; border-radius:10px; border:2px solid #d9962b;}"
-                           "QLabel{background:transparent;}")
+        loop.setStyleSheet(_card_style(B.CATEGORY_COLORS["flow"], "loop", CARD_BOX))
         ll = QVBoxLayout(loop)
+        ll.setContentsMargins(6, 4, 6, 4)
         ll.setSpacing(0)
-        lt = QLabel("⟳  REPEAT FOREVER")
-        lt.setStyleSheet("color:#d9962b; font-weight:bold; padding:2px 6px 6px 6px;")
+        lt = QLabel("\u27f3  REPEAT FOREVER")
+        lt.setObjectName("title")
         ll.addWidget(lt)
         self._fill(ll, self.program["children"], None, "c")
         lay.addWidget(loop)
@@ -424,8 +469,8 @@ class BlockEditor(QWidget):
             if w.d.container:
                 self._fill(w.inner, n["c"], n["id"], "c")
                 if w.d.has_else:
-                    el = QLabel("ELSE (no spot)")
-                    el.setStyleSheet("color:white; font-weight:bold; padding:4px 0 0 14px; background:transparent;")
+                    el = QLabel("ELSE  (no spot)")
+                    el.setStyleSheet(f"color:{MUTED}; font-weight:bold; font-size:11px; padding:2px 0 0 4px; background:transparent;")
                     w.inner.addWidget(el)
                     self._fill(w.inner, n["e"], n["id"], "e")
             layout.addWidget(DropSlot(self, owner, which, i + 1))

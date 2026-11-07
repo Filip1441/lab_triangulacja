@@ -27,11 +27,12 @@ KIND_FIX = {
 }
 
 CATEGORY_COLORS = {
-    "flow": "#d9962b",
-    "image": "#3b82c4",
-    "process": "#2f9e6b",
-    "detect": "#d36a3a",
-    "output": "#b8478a",
+    "setup": "#8b6fd1",
+    "flow": "#e0a43a",
+    "image": "#4a90d9",
+    "process": "#3fb27f",
+    "detect": "#e07b4a",
+    "output": "#c9559a",
 }
 
 
@@ -87,11 +88,11 @@ BLOCKS = {
                        help="Reads the x and y position of the remaining point."),
     "if_spot": BlockDef("If spot found", "flow", needs=("point",), container=True, has_else=True,
                         help="Left: runs when a spot was found. Else: runs when there is no spot."),
-    "report": BlockDef("Report spot position", "output", needs=("xy",),
+    "report": BlockDef("Report position", "output", needs=("xy",),
                        help="Sends x and y to the application (the Spot Location panel and the tracking)."),
     "report_none": BlockDef("Report: no spot", "output",
                             help="Tells the application that no spot is visible."),
-    "cross": BlockDef("Mark the spot with a cross", "output", needs=("xy", "binary"), gives="binary", preview=True,
+    "cross": BlockDef("Cross on spot", "output", needs=("xy", "binary"), gives="binary", preview=True,
                       params=(_int("size", "Size", 5, 100, 40),),
                       help="Draws a cross on the black-and-white image at the spot."),
     "display": BlockDef("Show on screen", "output", needs=_display_needs,
