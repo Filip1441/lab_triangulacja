@@ -27,6 +27,8 @@ from core.pid_controller import PIDControllerWorker
 from core.script_runner import ScriptRunner
 from ui.widgets import CameraDisplayWidget, ParameterSlider, FloatParameterSlider
 from ui.highlighter import PythonSyntaxHighlighter
+from ui.block_editor import BlockEditor
+from core import blocks as blocks_model
 from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
@@ -226,7 +228,19 @@ class MainWindow(QMainWindow):
         self.highlighter = PythonSyntaxHighlighter(self.txt_code.document())
         self.txt_code.textChanged.connect(self.on_code_changed)
         
-        code_layout.addWidget(self.txt_code, 1)
+        # Block editor (alternative to the code editor; the admin chooses which one the students see)
+        saved = self.settings.get('blocks_program')
+        self.block_editor = BlockEditor(blocks_model.from_dict(saved) if saved else blocks_model.new_program())
+        self.block_editor.changed.connect(self.on_blocks_changed)
+        self.code_stack = QStackedWidget()
+        self.code_stack.addWidget(self.txt_code)
+        self.code_stack.addWidget(self.block_editor)
+        self.code_group = code_group
+        code_layout.addWidget(self.code_stack, 1)
+        self.blocks_mode = False
+        self.preview_timer = QTimer(self)
+        self.preview_timer.setInterval(300)
+        self.preview_timer.timeout.connect(self.update_block_preview)
         
         # Buttons
         btn_layout = QHBoxLayout()
@@ -543,6 +557,7 @@ class MainWindow(QMainWindow):
         self.update_pid_gains()
         self.update_pid_rate()
         self.update_pid_target()
+        self.set_stage0_mode(st.get('stage0_mode', 'python') == 'blocks')
 
     def closeEvent(self, event):
         self.settings.flush()
@@ -720,6 +735,40 @@ class MainWindow(QMainWindow):
             # Restart debounce timer on every keystroke
             self.autorun_timer.start()
 
+    def set_stage0_mode(self, blocks):
+        """Shows the block editor (True) or the Python editor (False) in the same place; remembered across sessions."""
+        if self.script_runner and self.script_runner.isRunning():
+            self.stop_custom_script()
+        self.blocks_mode = bool(blocks)
+        self.code_stack.setCurrentIndex(1 if blocks else 0)
+        self.code_group.setTitle("Block Image Processing Sandbox" if blocks else "Python Image Processing Sandbox")
+        if blocks:
+            self.preview_timer.start()
+        else:
+            self.preview_timer.stop()
+        self.settings.set('stage0_mode', 'blocks' if blocks else 'python')
+
+    def current_script_text(self):
+        """Program text to run: the editor's code, or the code generated from the blocks (None if they are not valid)."""
+        if not self.blocks_mode:
+            return self.txt_code.toPlainText()
+        if not self.block_editor.is_valid():
+            self.txt_console.append("[BLOCKS] " + self.block_editor.problem_text())
+            return None
+        return self.block_editor.code()
+
+    def on_blocks_changed(self):
+        self.settings.set('blocks_program', self.block_editor.program)
+        if self.chk_autorun.isChecked() and self.block_editor.has_content() and self.block_editor.is_valid():
+            self.autorun_timer.start()
+
+    def update_block_preview(self):
+        if self.stack.currentIndex() != 0 or self.current_raw_frame is None or not self.block_editor.has_content():
+            return
+        if not self.isVisible():
+            return
+        self.block_editor.set_probes(blocks_model.run_preview(self.block_editor.program, self.current_raw_frame))
+
     def _autorun_trigger(self):
         """Called after debounce timer fires. Stops old script and schedules re-run."""
         if self.script_runner and self.script_runner.isRunning():
@@ -732,9 +781,12 @@ class MainWindow(QMainWindow):
 
     def run_custom_script(self):
         self.txt_console.clear()
-        self.txt_console.append("[INFO] Starting Python Sandbox Script...")
+        text = self.current_script_text()
+        if text is None:
+            return
+        self.txt_console.append("[INFO] Starting Block Program..." if self.blocks_mode else "[INFO] Starting Python Sandbox Script...")
         
-        self.script_runner = ScriptRunner(self.txt_code.toPlainText(), self)
+        self.script_runner = ScriptRunner(text, self)
         self.script_runner.log_signal.connect(self.append_console_log)
         self.script_runner.screen_signal.connect(self.update_script_screen)
         self.script_runner.servo_signal.connect(self.update_servo_from_script)

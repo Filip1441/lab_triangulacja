@@ -14,6 +14,7 @@ from core.pid_autotune import PidAutoTuneWorker
 from core.demo_script import DEMO_SCRIPT, STARTER_TEMPLATE
 from core import results
 from core import profile_scan as ps
+from core import blocks as blocks_model
 
 
 def _note(text):
@@ -158,6 +159,28 @@ class SettingsDialog(QDialog):
     def build_demo_tab(self):
         page = QWidget()
         lay = QVBoxLayout(page)
+
+        box = QGroupBox("What the students get in Stage 0")
+        bl = QVBoxLayout(box)
+        row = QHBoxLayout()
+        self.combo_stage0_mode = QComboBox()
+        self.combo_stage0_mode.addItems(["Python code editor", "Visual blocks"])
+        self.combo_stage0_mode.setCurrentIndex(1 if self.main_window.blocks_mode else 0)
+        self.combo_stage0_mode.currentIndexChanged.connect(lambda i: self.main_window.set_stage0_mode(i == 1))
+        row.addWidget(QLabel("Window:"))
+        row.addWidget(self.combo_stage0_mode, 1)
+        bl.addLayout(row)
+        bl.addWidget(_note("Remembered between sessions. Both programs are kept: switching does not delete anything."))
+        row = QHBoxLayout()
+        b = QPushButton("Load the full block solution")
+        b.clicked.connect(self.load_full_blocks)
+        row.addWidget(b)
+        b = QPushButton("Clear the blocks")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.clear_blocks)
+        row.addWidget(b)
+        bl.addLayout(row)
+        lay.addWidget(box)
         lay.addWidget(_note("The code editor starts with outline comments only. Paste the demo solution (full spot detection pipeline) "
                             "when showing the exercise to someone."))
         b = QPushButton("Paste demo code into the editor")
@@ -172,6 +195,19 @@ class SettingsDialog(QDialog):
         lay.addWidget(b)
         lay.addStretch(1)
         return page
+
+    def load_full_blocks(self):
+        mw = self.main_window
+        if mw.block_editor.has_content():
+            if QMessageBox.question(self, "Replace blocks", "The block program is not empty. Replace it?") != QMessageBox.Yes:
+                return
+        mw.stop_custom_script()
+        mw.block_editor.set_program(blocks_model.full_solution())
+
+    def clear_blocks(self):
+        mw = self.main_window
+        mw.stop_custom_script()
+        mw.block_editor.set_program(blocks_model.new_program())
 
     def paste_demo(self, run):
         mw = self.main_window
