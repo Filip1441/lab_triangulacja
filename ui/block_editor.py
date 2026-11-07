@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData, QTimer, QPoint
 from PySide6.QtGui import QDrag, QPainter, QColor, QPen, QPolygon, QImage, QPixmap, QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QSlider, QComboBox, QPushButton, QStackedWidget,
-    QTextEdit
+    QTextEdit, QCheckBox
 )
 from ui.highlighter import PythonSyntaxHighlighter
 
@@ -12,7 +12,6 @@ from core import blocks as B
 
 MIME = "application/x-lab-block"
 SLOT_H = 14
-THUMB_W, THUMB_H = 48, 36
 
 
 # One look for every block: a dark card with a coloured stripe on the left
@@ -36,6 +35,9 @@ def _card_style(col, name, bg, error=False):
         f"QSlider::groove:horizontal{{height:4px; background:#555a64; border-radius:2px;}}"
         f"QSlider::sub-page:horizontal{{background:{col}; border-radius:2px;}}"
         f"QSlider::handle:horizontal{{background:#f4f6f8; width:12px; height:12px; margin:-4px 0; border-radius:6px; border:none;}}"
+        f"QCheckBox{{background:transparent; color:{TEXT}; font-size:11px; font-weight:normal; spacing:5px;}}"
+        f"QCheckBox::indicator{{width:14px; height:14px; border:1px solid {EDGE}; border-radius:3px; background:#2b2d33;}}"
+        f"QCheckBox::indicator:checked{{background:{col}; border:1px solid {col};}}"
         f"QComboBox{{background:#454952; color:{TEXT}; border:1px solid {EDGE}; border-radius:4px; padding:1px 6px; font-size:11px;}}"
         f"QComboBox QAbstractItemView{{background:#2b2d33; color:{TEXT}; selection-background-color:{col};}}"
     )
@@ -163,13 +165,13 @@ class BlockWidget(QFrame):
         for spec in d.params:
             head.addLayout(self._param_row(spec), 1)
         head.addStretch(0)
-        self.thumb = None
+        self.show_box = None
         if d.preview:
-            self.thumb = QLabel()
-            self.thumb.setFixedSize(THUMB_W, THUMB_H)
-            self.thumb.setStyleSheet(f"background:#0d0d10; border:1px solid {EDGE}; border-radius:3px;")
-            self.thumb.setAlignment(Qt.AlignCenter)
-            head.addWidget(self.thumb)
+            self.show_box = QCheckBox("Screen")
+            self.show_box.setToolTip("Send the picture produced here to the screen (up to 2 pictures).")
+            self.show_box.setChecked(bool(node.get("show")))
+            self.show_box.toggled.connect(lambda on: editor.toggle_show(node, on, self.show_box))
+            head.addWidget(self.show_box)
         btn = _close_button()
         btn.clicked.connect(lambda: editor.delete(node["id"]))
         head.addWidget(btn, 0, Qt.AlignTop)
@@ -403,6 +405,19 @@ class BlockEditor(QWidget):
             self._revalidate()
             self.changed.emit()
 
+    def toggle_show(self, node, on, box):
+        if on and B.count_shown(self.program["children"]) >= B.MAX_SHOWN:
+            box.blockSignals(True)
+            box.setChecked(False)
+            box.blockSignals(False)
+            self.status.setText("\u26a0  Only 2 pictures fit on the screen: untick another 'Screen' first.")
+            self.status.setStyleSheet("color:#ffcc66; font-weight:bold;")
+            QTimer.singleShot(2500, self._revalidate)
+            return
+        node["show"] = bool(on)
+        self._revalidate()
+        self.changed.emit()
+
     def _structure_changed(self):
         self.rebuild()
         self.changed.emit()
@@ -489,20 +504,3 @@ class BlockEditor(QWidget):
         else:
             self.status.setText("✓  Program is ready.")
             self.status.setStyleSheet("color:#66dd88; font-weight:bold;")
-
-    # ---------- live thumbnails ----------
-    def set_probes(self, probes):
-        for nid, w in self.widgets.items():
-            if w.thumb is None:
-                continue
-            img = probes.get(nid)
-            w.thumb.setPixmap(self._pixmap(img) if isinstance(img, np.ndarray) else QPixmap())
-
-    @staticmethod
-    def _pixmap(img):
-        small = cv2.resize(img, (THUMB_W, THUMB_H), interpolation=cv2.INTER_AREA)
-        if small.ndim == 2:
-            qi = QImage(small.data, THUMB_W, THUMB_H, THUMB_W, QImage.Format_Grayscale8)
-        else:
-            qi = QImage(small.data, THUMB_W, THUMB_H, THUMB_W * 3, QImage.Format_BGR888)
-        return QPixmap.fromImage(qi.copy())

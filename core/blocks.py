@@ -47,7 +47,7 @@ class BlockDef:
         self.container = container
         self.has_else = has_else
         self.help = help
-        self.preview = preview      # shows a thumbnail of its result
+        self.preview = preview      # has a 'Screen' checkbox: can send its picture to the screen
 
 
 def _int(key, label, lo, hi, default, step=1, unit=""):
@@ -56,14 +56,6 @@ def _int(key, label, lo, hi, default, step=1, unit=""):
 
 def _choice(key, label, choices, default):
     return {"key": key, "label": label, "kind": "choice", "choices": choices, "default": default}
-
-
-_IMAGES = [("frame", "camera image"), ("gray", "grayscale image"), ("binary", "black-and-white image")]
-_VAR_KIND = {"frame": "color", "gray": "gray", "binary": "binary"}
-
-
-def _display_needs(p):
-    return tuple(_VAR_KIND[v] for v in (p.get("top"), p.get("bottom")) if v in _VAR_KIND)
 
 
 BLOCKS = {
@@ -95,10 +87,6 @@ BLOCKS = {
     "cross": BlockDef("Cross on spot", "output", needs=("xy", "binary"), gives="binary", preview=True,
                       params=(_int("size", "Size", 5, 100, 40),),
                       help="Draws a cross on the black-and-white image at the spot."),
-    "display": BlockDef("Show on screen", "output", needs=_display_needs,
-                        params=(_choice("top", "Top", _IMAGES, "frame"),
-                                _choice("bottom", "Bottom", [("", "(nothing)")] + _IMAGES, "binary")),
-                        help="Shows one or two pictures on the screen, one above the other."),
     "wait": BlockDef("Wait", "flow",
                      params=(_int("ms", "Time", 10, 500, 10, 10, "ms"),),
                      help="Pauses a short moment before the next picture."),
@@ -109,7 +97,7 @@ PALETTE = [
     ("Preparation", ["gray", "blur"]),
     ("Detection", ["threshold", "blobs", "erode", "coords"]),
     ("Decisions", ["if_frame", "if_spot"]),
-    ("Output", ["report", "report_none", "cross", "display"]),
+    ("Output", ["report", "report_none", "cross"]),
     ("Timing", ["wait"]),
 ]
 
@@ -122,6 +110,8 @@ def new_node(btype, params=None):
     if params:
         p.update(params)
     node = {"id": next(_ids), "t": btype, "p": p}
+    if d.preview:
+        node["show"] = False
     if d.container:
         node["c"] = []
         if d.has_else:
@@ -145,6 +135,7 @@ def from_dict(data):
     try:
         prog = copy.deepcopy(data)
         _check(prog["children"])
+        _limit_shown(prog["children"], [MAX_SHOWN])
         prog["exposure_ms"] = int(prog.get("exposure_ms", 10))
         _renumber(prog["children"])
         return prog
@@ -153,15 +144,36 @@ def from_dict(data):
 
 
 def _check(nodes):
+    nodes[:] = [n for n in nodes if n.get("t") in BLOCKS]   # blocks removed from the editor are dropped
     for n in nodes:
         d = BLOCKS[n["t"]]
         n["p"] = {x["key"]: n.get("p", {}).get(x["key"], x["default"]) for x in d.params}
+        if d.preview:
+            n["show"] = bool(n.get("show"))
         n["c"] = n.get("c", []) if d.container else []
         if d.has_else:
             n["e"] = n.get("e", [])
         _check(n.get("c", []))
         _check(n.get("e", []))
     return nodes
+
+
+MAX_SHOWN = 2
+
+
+def count_shown(nodes):
+    return sum(bool(n.get("show")) + count_shown(n.get("c", [])) + count_shown(n.get("e", [])) for n in nodes)
+
+
+def _limit_shown(nodes, left):
+    for n in nodes:
+        if n.get("show"):
+            if left[0] > 0:
+                left[0] -= 1
+            else:
+                n["show"] = False
+        _limit_shown(n.get("c", []), left)
+        _limit_shown(n.get("e", []), left)
 
 
 def count_nodes(nodes):
@@ -211,34 +223,40 @@ def validate(program):
 
 
 # ---------- code generation ----------
-def _gen(nodes, ind, out, probe):
+_SHOW_VAR = {"capture": "frame", "gray": "gray", "blur": "gray", "threshold": "binary", "blobs": "mask",
+             "erode": "mask", "cross": "binary"}
+
+
+def _gen(nodes, ind, out, any_show):
     pad = "    " * ind
 
     def line(s=""):
         out.append(pad + s if s else "")
 
-    def probed(n, var):
-        if probe and BLOCKS[n["t"]].preview:
-            line(f"__probe({n['id']}, {var})")
+    def shown(n):
+        if n.get("show"):
+            var = _SHOW_VAR[n["t"]]
+            line(f"if {var} is not None:")
+            line(f"    screen.append({var}.copy())")
 
     for n in nodes:
         t, p = n["t"], n["p"]
         if t == "capture":
             line("frame = capture_frame()")
-            probed(n, "frame")
+            shown(n)
         elif t == "if_frame":
             line("if frame is not None:")
-            _gen_body(n["c"], ind + 1, out, probe)
+            _gen_body(n["c"], ind + 1, out, any_show)
         elif t == "gray":
             line("gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)")
-            probed(n, "gray")
+            shown(n)
         elif t == "blur":
             k = int(p["size"]) | 1
             line(f"gray = cv2.GaussianBlur(gray, ({k}, {k}), 0)")
-            probed(n, "gray")
+            shown(n)
         elif t == "threshold":
             line(f"_, binary = cv2.threshold(gray, {int(p['value'])}, 255, cv2.THRESH_BINARY)")
-            probed(n, "binary")
+            shown(n)
         elif t == "blobs":
             line("contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)")
             line("mask = None")
@@ -246,7 +264,7 @@ def _gen(nodes, ind, out, probe):
             line("    largest = max(contours, key=cv2.contourArea)")
             line("    mask = np.zeros_like(binary)")
             line("    cv2.drawContours(mask, [largest], -1, 255, -1)")
-            probed(n, "mask")
+            shown(n)
         elif t == "erode":
             line("if mask is not None:")
             line("    kernel = np.ones((3, 3), np.uint8)")
@@ -255,7 +273,7 @@ def _gen(nodes, ind, out, probe):
             line("        if np.sum(smaller == 255) == 0:")
             line("            break")
             line("        mask = smaller")
-            probed(n, "mask")
+            shown(n)
         elif t == "coords":
             line("spot = None")
             line("if mask is not None:")
@@ -266,9 +284,9 @@ def _gen(nodes, ind, out, probe):
         elif t == "if_spot":
             line("if spot is not None:")
             line("    x, y = spot")
-            _gen_body(n["c"], ind + 1, out, probe, keep_empty=False)
+            _gen_body(n["c"], ind + 1, out, any_show)
             line("else:")
-            _gen_body(n["e"], ind + 1, out, probe)
+            _gen_body(n["e"], ind + 1, out, any_show)
         elif t == "report":
             line("send_location(x, y)")
             line("set_detected_spot(x, y, 255.0)")
@@ -277,34 +295,29 @@ def _gen(nodes, ind, out, probe):
             line("set_detected_spot(-1.0, -1.0, 0.0)")
         elif t == "cross":
             line(f"binary = draw_cross_on_location(binary, x, y, size={int(p['size'])})")
-            probed(n, "binary")
-        elif t == "display":
-            if p.get("bottom"):
-                line(f"send_to_screen({p['top']}, {p['bottom']})")
-            else:
-                line(f"send_to_screen({p['top']})")
+            shown(n)
         elif t == "wait":
-            if not probe:
-                line(f"time.sleep({max(int(p['ms']), 10) / 1000.0})")
+            if any_show:
+                line("if screen:")
+                line("    send_to_screen(*screen)")
+            line(f"time.sleep({max(int(p['ms']), 10) / 1000.0})")
 
 
-def _gen_body(nodes, ind, out, probe, keep_empty=True):
+def _gen_body(nodes, ind, out, any_show):
     start = len(out)
-    _gen(nodes, ind, out, probe)
+    _gen(nodes, ind, out, any_show)
     if len(out) == start:
         out.append("    " * ind + "pass")
 
 
-def generate_code(program, probe=False):
-    """Python text for the program. probe=True gives one loop iteration with __probe(id, value) after image blocks."""
-    out = []
-    if not probe:
-        out += ["import cv2", "import numpy as np", "import time", "",
-                f"set_exposure_ms({float(program['exposure_ms'])})", "", "while True:"]
-        body_ind = 1
-    else:
-        body_ind = 0
-    _gen_body(program["children"], body_ind, out, probe)
+def generate_code(program):
+    """Python text for the program (what ScriptRunner executes). Blocks ticked 'Screen' are sent to the screen."""
+    any_show = count_shown(program["children"]) > 0
+    out = ["import cv2", "import numpy as np", "import time", "",
+           f"set_exposure_ms({float(program['exposure_ms'])})", "", "while True:"]
+    if any_show:
+        out.append("    screen = []")
+    _gen_body(program["children"], 1, out, any_show)
     return "\n".join(out) + "\n"
 
 
@@ -312,38 +325,16 @@ def generate_code(program, probe=False):
 def full_solution(exposure_ms=10):
     p = new_program(exposure_ms)
     n = new_node
+    cap = n("capture")
+    cap["show"] = True
+    cross = n("cross")
+    cross["show"] = True
     inner = [n("gray"), n("blur"), n("threshold"), n("blobs"), n("erode"), n("coords")]
     spot = n("if_spot")
-    spot["c"] = [n("report"), n("cross")]
+    spot["c"] = [n("report"), cross]
     spot["e"] = [n("report_none")]
-    inner += [spot, n("display")]
+    inner += [spot]
     frame_if = n("if_frame")
     frame_if["c"] = inner
-    p["children"] = [n("capture"), frame_if, n("wait")]
+    p["children"] = [cap, frame_if, n("wait")]
     return p
-
-
-# ---------- live preview (thumbnails) ----------
-def run_preview(program, frame):
-    """Runs one iteration of the program on a frame without side effects; returns {node_id: image or value}."""
-    import cv2
-    import numpy as np
-    out = {}
-
-    def noop(*a, **k):
-        return None
-
-    def cross(img, x, y, size=15, thickness=None):
-        img = img.copy()
-        cv2.line(img, (int(x), int(y) - size), (int(x), int(y) + size), 255, 2)
-        cv2.line(img, (int(x) - size, int(y)), (int(x) + size, int(y)), 255, 2)
-        return img
-
-    env = {"cv2": cv2, "np": np, "capture_frame": lambda: frame, "send_location": noop,
-           "set_detected_spot": noop, "send_to_screen": noop, "draw_cross_on_location": cross,
-           "__probe": lambda i, v: out.__setitem__(i, None if v is None else np.asarray(v).copy())}
-    try:
-        exec(generate_code(program, probe=True), env)
-    except Exception:
-        pass
-    return out

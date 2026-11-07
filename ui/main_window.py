@@ -238,9 +238,6 @@ class MainWindow(QMainWindow):
         self.code_group = code_group
         code_layout.addWidget(self.code_stack, 1)
         self.blocks_mode = False
-        self.preview_timer = QTimer(self)
-        self.preview_timer.setInterval(300)
-        self.preview_timer.timeout.connect(self.update_block_preview)
         
         # Buttons
         btn_layout = QHBoxLayout()
@@ -744,10 +741,6 @@ class MainWindow(QMainWindow):
         self.code_stack.setCurrentIndex(1 if blocks else 0)
         self.code_group.setTitle("Block Image Processing Sandbox" if blocks else "Python Image Processing Sandbox")
         self.console_group.setVisible(not blocks)   # the block editor shows its own status line
-        if blocks:
-            self.preview_timer.start()
-        else:
-            self.preview_timer.stop()
         self.settings.set('stage0_mode', 'blocks' if blocks else 'python')
 
     def current_script_text(self):
@@ -764,13 +757,6 @@ class MainWindow(QMainWindow):
         self.settings.set('blocks_program', self.block_editor.program)
         if self.chk_autorun.isChecked() and self.block_editor.has_content() and self.block_editor.is_valid():
             self.autorun_timer.start()
-
-    def update_block_preview(self):
-        if self.stack.currentIndex() != 0 or self.current_raw_frame is None or not self.block_editor.has_content():
-            return
-        if not self.isVisible():
-            return
-        self.block_editor.set_probes(blocks_model.run_preview(self.block_editor.program, self.current_raw_frame))
 
     def _autorun_trigger(self):
         """Called after debounce timer fires. Stops old script and schedules re-run."""
