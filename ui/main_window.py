@@ -265,6 +265,7 @@ class MainWindow(QMainWindow):
         self.txt_console.setFont(QFont("Courier", 9))
         console_layout.addWidget(self.txt_console)
         
+        self.console_group = console_group
         layout.addWidget(console_group, 1)
         
         self.stack.addWidget(page)
@@ -742,6 +743,7 @@ class MainWindow(QMainWindow):
         self.blocks_mode = bool(blocks)
         self.code_stack.setCurrentIndex(1 if blocks else 0)
         self.code_group.setTitle("Block Image Processing Sandbox" if blocks else "Python Image Processing Sandbox")
+        self.console_group.setVisible(not blocks)   # the block editor shows its own status line
         if blocks:
             self.preview_timer.start()
         else:
@@ -758,6 +760,7 @@ class MainWindow(QMainWindow):
         return self.block_editor.code()
 
     def on_blocks_changed(self):
+
         self.settings.set('blocks_program', self.block_editor.program)
         if self.chk_autorun.isChecked() and self.block_editor.has_content() and self.block_editor.is_valid():
             self.autorun_timer.start()
@@ -827,6 +830,8 @@ class MainWindow(QMainWindow):
         
     @Slot(str)
     def append_console_log(self, text):
+        if self.blocks_mode and "[ERROR]" in text:
+            self.block_editor.show_runtime_error(text)
         self.txt_console.insertPlainText(text)
         self.txt_console.ensureCursorVisible()
         

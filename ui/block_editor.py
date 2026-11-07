@@ -1,15 +1,18 @@
 import cv2
 import numpy as np
 from PySide6.QtCore import Qt, Signal, QMimeData, QTimer, QPoint
-from PySide6.QtGui import QDrag, QPainter, QColor, QPen, QPolygon, QImage, QPixmap
+from PySide6.QtGui import QDrag, QPainter, QColor, QPen, QPolygon, QImage, QPixmap, QFont
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QSlider, QComboBox, QPushButton, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea, QSlider, QComboBox, QPushButton, QStackedWidget,
+    QTextEdit
 )
+from ui.highlighter import PythonSyntaxHighlighter
 
 from core import blocks as B
 
 MIME = "application/x-lab-block"
-THUMB_W, THUMB_H = 84, 63
+SLOT_H = 14
+THUMB_W, THUMB_H = 48, 36
 
 
 def _darker(color, f=0.75):
@@ -26,8 +29,8 @@ class PaletteItem(QLabel):
         self.editor = editor
         col = B.CATEGORY_COLORS[d.category]
         self.setStyleSheet(
-            f"background:{col}; color:white; font-weight:bold; border-radius:6px; padding:5px 8px; font-size:12px; "
-            f"border-bottom:3px solid {_darker(col)};")
+            f"background:{col}; color:white; font-weight:bold; border-radius:6px; padding:3px 7px; font-size:11px; "
+            f"border-bottom:2px solid {_darker(col)};")
         self.setToolTip(d.help)
         self.setCursor(Qt.OpenHandCursor)
         self._press = None
@@ -60,19 +63,19 @@ class DropSlot(QWidget):
         super().__init__()
         self.editor, self.owner, self.which, self.index = editor, owner, which, index
         self.setAcceptDrops(True)
-        self.setFixedHeight(22)
+        self.setFixedHeight(SLOT_H)
         self.hover = False
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasFormat(MIME):
             e.acceptProposedAction()
             self.hover = True
-            self.setFixedHeight(40)
+            self.setFixedHeight(SLOT_H * 2)
             self.update()
 
     def dragLeaveEvent(self, e):
         self.hover = False
-        self.setFixedHeight(22)
+        self.setFixedHeight(SLOT_H)
         self.update()
 
     def dropEvent(self, e):
@@ -91,10 +94,10 @@ class DropSlot(QWidget):
             return
         col = QColor("#8a8f98")
         p.setPen(QPen(col, 2))
-        p.drawLine(cx, 0, cx, self.height() - 7)
+        p.drawLine(cx, 0, cx, self.height() - 5)
         p.setBrush(col)
         p.setPen(Qt.NoPen)
-        p.drawPolygon(QPolygon([QPoint(cx - 5, self.height() - 8), QPoint(cx + 5, self.height() - 8),
+        p.drawPolygon(QPolygon([QPoint(cx - 4, self.height() - 6), QPoint(cx + 4, self.height() - 6),
                                 QPoint(cx, self.height() - 1)]))
 
 
@@ -111,51 +114,47 @@ class BlockWidget(QFrame):
         self.setStyleSheet(self._style(False))
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 4, 8, 6)
-        outer.setSpacing(4)
+        outer.setContentsMargins(6, 3, 6, 4)
+        outer.setSpacing(2)
 
         head = QHBoxLayout()
+        head.setSpacing(8)
         self.title = QLabel(d.title)
-        self.title.setStyleSheet("color:white; font-weight:bold; background:transparent;")
+        self.title.setStyleSheet("color:white; font-weight:bold; font-size:12px; background:transparent;")
         self.title.setCursor(Qt.OpenHandCursor)
-        head.addWidget(self.title, 1)
-        self.thumb = None
-        btn = QPushButton("✕")
-        btn.setFixedSize(24, 24)
-        btn.setStyleSheet("QPushButton{background:rgba(0,0,0,70);color:white;border-radius:12px;padding:0;}"
-                          "QPushButton:hover{background:rgba(0,0,0,140);}")
-        btn.clicked.connect(lambda: editor.delete(node["id"]))
-        head.addWidget(btn)
-        outer.addLayout(head)
-
-        body = QHBoxLayout()
-        body.setSpacing(10)
-        params = QVBoxLayout()
+        head.addWidget(self.title)
         for spec in d.params:
-            params.addLayout(self._param_row(spec))
-        body.addLayout(params, 1)
+            head.addLayout(self._param_row(spec), 1)
+        head.addStretch(0)
+        self.thumb = None
         if d.preview:
             self.thumb = QLabel()
             self.thumb.setFixedSize(THUMB_W, THUMB_H)
             self.thumb.setStyleSheet("background:#101010; border-radius:3px;")
             self.thumb.setAlignment(Qt.AlignCenter)
-            body.addWidget(self.thumb)
-        outer.addLayout(body)
+            head.addWidget(self.thumb)
+        btn = QPushButton("\u2715")
+        btn.setFixedSize(18, 18)
+        btn.setStyleSheet("QPushButton{background:rgba(0,0,0,70);color:white;border-radius:9px;padding:0;font-size:10px;}"
+                          "QPushButton:hover{background:rgba(0,0,0,140);}")
+        btn.clicked.connect(lambda: editor.delete(node["id"]))
+        head.addWidget(btn, 0, Qt.AlignTop)
+        outer.addLayout(head)
 
         self.err = QLabel()
         self.err.setWordWrap(True)
-        self.err.setStyleSheet("color:#ffd5d5; background:rgba(160,0,0,160); border-radius:3px; padding:3px 6px;")
+        self.err.setStyleSheet("color:#ffd5d5; background:rgba(160,0,0,160); border-radius:3px; padding:2px 6px; font-size:11px;")
         self.err.hide()
         outer.addWidget(self.err)
 
         if d.container:
             self.inner = QVBoxLayout()
-            self.inner.setContentsMargins(10, 0, 0, 0)
+            self.inner.setContentsMargins(8, 0, 0, 0)
             outer.addLayout(self.inner)
 
     def _style(self, error):
         border = "#ff4d4d" if error else _darker(self.col)
-        return (f"QFrame#block{{background:{self.col}; border-radius:8px; border:{3 if error else 2}px solid {border};}}"
+        return (f"QFrame#block{{background:{self.col}; border-radius:7px; border:{3 if error else 1}px solid {border};}}"
                 f"QLabel{{background:transparent;}}")
 
     def set_error(self, msg):
@@ -166,16 +165,17 @@ class BlockWidget(QFrame):
     def _param_row(self, spec):
         row = QHBoxLayout()
         lab = QLabel(spec["label"])
-        lab.setStyleSheet("color:white; background:transparent; min-width:56px;")
+        lab.setStyleSheet("color:white; background:transparent; font-size:11px;")
         row.addWidget(lab)
         node = self.node
         if spec["kind"] == "int":
             sl = QSlider(Qt.Horizontal)
+            sl.setMinimumWidth(70)
             step = spec.get("step", 1)
             sl.setRange(0, (spec["max"] - spec["min"]) // step)
             sl.setValue((int(node["p"][spec["key"]]) - spec["min"]) // step)
             val = QLabel()
-            val.setStyleSheet("color:white; font-weight:bold; background:transparent; min-width:44px;")
+            val.setStyleSheet("color:white; font-weight:bold; background:transparent; font-size:11px; min-width:40px;")
             val.setText(f"{node['p'][spec['key']]} {spec.get('unit', '')}".strip())
 
             def changed(v, spec=spec, val=val, step=step):
@@ -220,41 +220,67 @@ class BlockEditor(QWidget):
         self.errors = {}
         self.warnings = []
 
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
 
+        # Palette: a horizontal strip on top, one column per category
         pal_scroll = QScrollArea()
         pal_scroll.setWidgetResizable(True)
-        pal_scroll.setFixedWidth(158)
-        pal_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        pal_scroll.setFixedHeight(142)
+        pal_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         pal = QWidget()
-        pl = QVBoxLayout(pal)
-        pl.setSpacing(6)
-        hint = QLabel("Drag blocks into the program (double-click appends).")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#aaa;")
-        pl.addWidget(hint)
+        pl = QHBoxLayout(pal)
+        pl.setContentsMargins(6, 4, 6, 4)
+        pl.setSpacing(10)
         for name, types in B.PALETTE:
+            col = QVBoxLayout()
+            col.setSpacing(3)
             h = QLabel(name.upper())
-            h.setStyleSheet("color:#4daafc; font-weight:bold; margin-top:8px;")
-            pl.addWidget(h)
+            h.setStyleSheet("color:#4daafc; font-weight:bold; font-size:10px;")
+            col.addWidget(h)
             for t in types:
-                pl.addWidget(PaletteItem(t, self))
+                col.addWidget(PaletteItem(t, self))
+            col.addStretch(1)
+            pl.addLayout(col)
         pl.addStretch(1)
         pal_scroll.setWidget(pal)
+        pal_scroll.setToolTip("Drag a block into the program below (double-click appends it to the end).")
         root.addWidget(pal_scroll)
 
-        right = QVBoxLayout()
+        # Program (or its generated Python code)
+        self.view = QStackedWidget()
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        right.addWidget(self.scroll, 1)
+        self.view.addWidget(self.scroll)
+        self.code_view = QTextEdit()
+        self.code_view.setReadOnly(True)
+        self.code_view.setFont(QFont("Courier", 10))
+        self.highlighter = PythonSyntaxHighlighter(self.code_view.document())
+        self.view.addWidget(self.code_view)
+        root.addWidget(self.view, 1)
+
+        bottom = QHBoxLayout()
         self.status = QLabel()
         self.status.setWordWrap(True)
-        right.addWidget(self.status)
-        root.addLayout(right, 1)
+        bottom.addWidget(self.status, 1)
+        self.btn_code = QPushButton("Show code")
+        self.btn_code.setCheckable(True)
+        self.btn_code.setObjectName("secondary")
+        self.btn_code.toggled.connect(self._toggle_code)
+        bottom.addWidget(self.btn_code)
+        root.addLayout(bottom)
 
         self.rebuild()
+
+    def _toggle_code(self, show):
+        self.btn_code.setText("Show blocks" if show else "Show code")
+        self.view.setCurrentIndex(1 if show else 0)
+
+    def show_runtime_error(self, text):
+        self.status.setText("\u26a0  " + text.strip().splitlines()[-1][:160])
+        self.status.setStyleSheet("color:#ff8080; font-weight:bold;")
 
     # ---------- model access ----------
     def set_program(self, program):
@@ -408,6 +434,7 @@ class BlockEditor(QWidget):
         self.errors, self.warnings = B.validate(self.program)
         for nid, w in self.widgets.items():
             w.set_error(self.errors.get(nid))
+        self.code_view.setPlainText(self.code())
         if self.errors:
             self.status.setText("⚠  Fix the red blocks to run the program.")
             self.status.setStyleSheet("color:#ff8080; font-weight:bold;")

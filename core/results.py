@@ -109,8 +109,14 @@ def build_package(mw, note: str = "") -> str:
     work = os.path.join(results_dir(), f".tmp_{stamp}")
     os.makedirs(work, exist_ok=True)
     try:
+        blocks_mode = getattr(mw, "blocks_mode", False)
         with open(os.path.join(work, "script.py"), "w", encoding="utf-8") as f:
-            f.write(mw.txt_code.toPlainText())
+            # block programs are saved as the Python they generate, plus the diagram itself
+            f.write(mw.block_editor.code() if blocks_mode else mw.txt_code.toPlainText())
+        if blocks_mode:
+            with open(os.path.join(work, "blocks.json"), "w", encoding="utf-8") as f:
+                json.dump(mw.block_editor.program, f, indent=2)
+            mw.block_editor.grab().save(os.path.join(work, "blocks.png"))
         with open(os.path.join(work, "console.txt"), "w", encoding="utf-8") as f:
             f.write(mw.txt_console.toPlainText())
 
