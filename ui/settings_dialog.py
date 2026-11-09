@@ -2,7 +2,7 @@ import math
 import subprocess
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QWidget, QMessageBox,
-    QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox, QStackedWidget, QSpinBox, QProgressBar, QLineEdit
+    QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox, QStackedWidget, QSpinBox, QProgressBar, QLineEdit, QTextEdit
 )
 import numpy as np
 import pyqtgraph as pg
@@ -59,6 +59,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self.build_profile_tab(), "Profile")
         self.tabs.addTab(self.build_system_tab(), "System")
         self.tabs.addTab(self.build_wifi_tab(), "Wi-Fi")
+        self.tabs.addTab(self.build_diag_tab(), "Diagnostics")
         layout.addWidget(self.tabs)
 
         btn_close = QPushButton("Close")
@@ -490,6 +491,58 @@ class SettingsDialog(QDialog):
         lay.addWidget(b)
         lay.addStretch(1)
         return page
+
+    # ---------- diagnostics (lag / hang monitor) ----------
+    def build_diag_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        self.diag = self.main_window.diagnostics
+        lay.addWidget(_note("Lag and hang monitor. The app writes a line every 5 s to the log below, so a slowdown "
+                            "that builds up over time can be read afterwards. Ctrl+Shift+D shows the same numbers "
+                            "as an overlay on the main window."))
+        self.lbl_diag = QLabel("")
+        self.lbl_diag.setStyleSheet("font-family: Courier; font-size: 12px; color: #7CFC00;")
+        self.lbl_diag.setWordWrap(True)
+        lay.addWidget(self.lbl_diag)
+        self.diag_plot = pg.PlotWidget()
+        self.diag_plot.setBackground("#1e1e1e")
+        self.diag_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.diag_plot.setLabel("left", "GUI lag max (ms)")
+        self.diag_plot.setLabel("bottom", "samples (5 s each)")
+        self.diag_plot.setMinimumHeight(140)
+        self.diag_curve = self.diag_plot.plot(pen=pg.mkPen((255, 120, 0), width=2))
+        lay.addWidget(self.diag_plot)
+        row = QHBoxLayout()
+        b = QPushButton("Dump all thread stacks now")
+        b.clicked.connect(self.diag_dump)
+        row.addWidget(b)
+        b = QPushButton("Refresh log")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.diag_refresh)
+        row.addWidget(b)
+        lay.addLayout(row)
+        self.txt_diag = QTextEdit()
+        self.txt_diag.setReadOnly(True)
+        self.txt_diag.setFont(__import__("PySide6.QtGui", fromlist=["QFont"]).QFont("Courier", 8))
+        lay.addWidget(self.txt_diag, 1)
+        lay.addWidget(_note(f"Files: {self.diag.log_path}  (rolling log)   {self.diag.hang_path}  (stack dumps when the GUI freezes for over 8 s)"))
+        self.diag_timer = QTimer(self)
+        self.diag_timer.timeout.connect(self.diag_update)
+        self.diag_timer.start(1000)
+        return page
+
+    def diag_update(self):
+        if not self.isVisible() or self.tabs.currentWidget() is None:
+            return
+        self.lbl_diag.setText(self.diag.summary())
+        self.diag_curve.setData([r["gui_lag_max_ms"] for r in self.diag.history])
+
+    def diag_refresh(self):
+        self.txt_diag.setPlainText(self.diag.tail(60))
+        self.txt_diag.verticalScrollBar().setValue(self.txt_diag.verticalScrollBar().maximum())
+
+    def diag_dump(self):
+        self.txt_diag.setPlainText(self.diag.dump_threads())
 
     # ---------- Wi-Fi ----------
     def build_wifi_tab(self):

@@ -1,4 +1,5 @@
 import os
+import time
 import math
 import threading
 from datetime import datetime
@@ -29,6 +30,7 @@ from ui.widgets import CameraDisplayWidget, ParameterSlider, FloatParameterSlide
 from ui.highlighter import PythonSyntaxHighlighter
 from ui.block_editor import BlockEditor
 from core import blocks as blocks_model
+from core.diagnostics import Diagnostics
 from utils.data_logger import DataLogger
 from ui.schematic_widget import InteractiveSchematicWidget
 from ui.settings_dialog import SettingsDialog
@@ -90,6 +92,18 @@ class MainWindow(QMainWindow):
         self.settings_timer.timeout.connect(self.settings.flush)
         self.settings_timer.start(1000)
         
+        # Hidden diagnostics (admin > Diagnostics, Ctrl+Shift+D overlay): lag/hang monitor with a rolling log
+        self.diagnostics = Diagnostics(self)
+        self.diagnostics.start()
+        self.diag_overlay = QLabel(self)
+        self.diag_overlay.setStyleSheet("background: rgba(0,0,0,200); color: #7CFC00; font-family: Courier; font-size: 11px; padding: 6px;")
+        self.diag_overlay.hide()
+        self.diag_timer = QTimer(self)
+        self.diag_timer.timeout.connect(self._update_diag_overlay)
+        self.shortcut_diag = QShortcut(QKeySequence("Ctrl+Shift+D"), self)
+        self.shortcut_diag.setContext(Qt.ApplicationShortcut)
+        self.shortcut_diag.activated.connect(self.toggle_diag_overlay)
+
         # Start Workers
         self.camera_worker.start()
 
@@ -559,7 +573,23 @@ class MainWindow(QMainWindow):
         self.update_pid_target()
         self.set_stage0_mode(st.get('stage0_mode', 'python') == 'blocks')
 
+    def toggle_diag_overlay(self):
+        on = not self.diag_overlay.isVisible()
+        self.diag_overlay.setVisible(on)
+        if on:
+            self.diag_timer.start(1000)
+            self._update_diag_overlay()
+        else:
+            self.diag_timer.stop()
+
+    def _update_diag_overlay(self):
+        self.diag_overlay.setText(self.diagnostics.summary())
+        self.diag_overlay.adjustSize()
+        self.diag_overlay.move(max(0, self.width() - self.diag_overlay.width() - 8), 50)
+        self.diag_overlay.raise_()
+
     def closeEvent(self, event):
+        self.diagnostics.stop()
         self.settings.flush()
         super().closeEvent(event)
 
@@ -685,6 +715,8 @@ class MainWindow(QMainWindow):
     @Slot(np.ndarray)
     def process_and_display_frame(self, frame: np.ndarray):
         self.camera_worker.frame_consumed()
+        if hasattr(self, 'diagnostics') and self.camera_worker.frame_time:
+            self.diagnostics.on_frame(time.time() - self.camera_worker.frame_time)
         self.current_raw_frame = frame
         self.new_frame_event.set()
         
@@ -827,6 +859,7 @@ class MainWindow(QMainWindow):
     def update_script_screen(self, frame):
         if self.script_runner:
             self.script_runner.screen_pending = False
+        self.diagnostics.on_screen_shown()
         self.camera_display.update_frame(frame)
         
     @Slot(float)

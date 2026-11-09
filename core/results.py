@@ -128,6 +128,10 @@ def build_package(mw, note: str = "") -> str:
             with open(os.path.join(work, "blocks.json"), "w", encoding="utf-8") as f:
                 json.dump(mw.block_editor.program, f, indent=2)
             mw.block_editor.grab().save(os.path.join(work, "blocks.png"))
+        diag = getattr(mw, "diagnostics", None)
+        if diag is not None:
+            with open(os.path.join(work, "diagnostics.txt"), "w", encoding="utf-8") as f:
+                f.write(diag.tail(120))
         with open(os.path.join(work, "console.txt"), "w", encoding="utf-8") as f:
             f.write(mw.txt_console.toPlainText())
 

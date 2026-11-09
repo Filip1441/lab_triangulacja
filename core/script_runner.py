@@ -21,12 +21,17 @@ class ScriptRunner(QThread):
         self.running = False
         self.screen_pending = False
         self._screen_sent = 0.0
+        self.iterations = 0      # diagnostics: loop iterations (capture_frame calls)
+        self.screen_sent = 0
+        self.screen_drops = 0
 
     def _emit_screen(self, img):
         """Latest-wins: a picture is dropped when the GUI has not shown the previous one yet (no queue, no lag)."""
         now = time.time()
         if self.screen_pending and now - self._screen_sent < 0.5:
+            self.screen_drops += 1
             return
+        self.screen_sent += 1
         self.screen_pending = True
         self._screen_sent = now
         self.screen_signal.emit(img)
@@ -58,6 +63,7 @@ class ScriptRunner(QThread):
             return
         
         def capture_frame():
+            self.iterations += 1
             if not self.running:
                 raise InterruptedError("Script stopped by user")
             # Synchronize with camera frame arrival (max 40ms timeout)

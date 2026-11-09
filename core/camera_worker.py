@@ -39,6 +39,8 @@ class CameraWorker(QThread):
         self.last_frame = None
         self._frame_pending = False
         self._frame_sent = 0.0
+        self.frame_time = 0.0       # time.time() of the last captured frame (diagnostics: frame age)
+        self.dropped_frames = 0     # frames skipped because the GUI was still busy
         self.frame_counter = 0
         self.camera_fov = config.DEFAULT_FOV_DEG
 
@@ -252,6 +254,7 @@ class CameraWorker(QThread):
 
                 if frame is not None:
                     self.last_frame = frame
+                    self.frame_time = time.time()
                     self.frame_counter += 1
                     # One frame in flight: if the GUI is still busy with the previous one, skip this frame instead of
                     # queueing it (queued frames pile up, eat memory and make the picture lag more and more)
@@ -259,6 +262,8 @@ class CameraWorker(QThread):
                         self._frame_pending = True
                         self._frame_sent = time.time()
                         self.frame_ready.emit(frame)
+                    else:
+                        self.dropped_frames += 1
 
             # Sleep to match target FPS
             elapsed = time.time() - start_time
