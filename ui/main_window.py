@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton, QStackedWidget, QLabel, QGroupBox, 
     QTableWidget, QTableWidgetItem, QHeaderView,
     QDoubleSpinBox, QSpinBox, QStatusBar, QCheckBox, QTabWidget,
-    QMessageBox, QTextEdit, QComboBox, QFileDialog, QButtonGroup
+    QMessageBox, QTextEdit, QComboBox, QFileDialog, QButtonGroup, QApplication
 )
 from PySide6.QtGui import QShortcut, QKeySequence, QFont, QAction
 from PySide6.QtCore import Qt, Slot, QTimer
@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         # Fitted curve state
         self.active_fit_type = None  # "linear" or "exp"
         self.active_fit_popt = None
+        self.fit_history = []   # every fit with its plot and equation, saved in the results package
         
         self.settings = SettingsStore()
         self.init_ui()
@@ -943,6 +944,21 @@ class MainWindow(QMainWindow):
         self.lbl_live_distance.setText("No Fit Data")
         self._sync_schematic_override(None)
 
+    def _record_fit(self):
+        """Keeps a snapshot of the fit (plot, equation, points, base B): the results package saves all of them."""
+        QApplication.processEvents()   # let the plot draw the new curve first
+        rows = [[self.table_s1.item(r, c).text() if self.table_s1.item(r, c) else "" for c in range(4)]
+                for r in range(self.table_s1.rowCount())]
+        self.fit_history.append({
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "base_mm": float(self.schematic.base_distance),
+            "type": self.active_fit_type,
+            "equation": self.lbl_fit_eq.text(),
+            "points": rows,
+            "image": results.plot_image(self.calib_plot),
+        })
+        del self.fit_history[:-30]
+
     def fit_linear(self):
         x, y = self.get_calibration_data()
         if len(x) < 2:
@@ -958,6 +974,7 @@ class MainWindow(QMainWindow):
             self.lbl_fit_eq.setText(f"y = {popt[0]:.2f}x + {popt[1]:.2f}")
             self.active_fit_type = "linear"
             self.active_fit_popt = popt
+            self._record_fit()
         except Exception as e:
             self.lbl_fit_eq.setText("Fit failed.")
 
@@ -1001,6 +1018,7 @@ class MainWindow(QMainWindow):
         self.lbl_fit_eq.setText(f"y = {popt[0]:.4g} * e^({popt[1]:.5f} x) + {popt[2]:.2f}")
         self.active_fit_type = "exp"
         self.active_fit_popt = popt
+        self._record_fit()
 
     # --- Stage 2 Verification Logic ---
     def verify_s2_answer(self):

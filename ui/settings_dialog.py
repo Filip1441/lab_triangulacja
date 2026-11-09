@@ -847,6 +847,7 @@ class SettingsDialog(QDialog):
             return
         n, size = results.delete_all_results([mw.data_logger.export_dir])
         mw.s1_frames.clear()
+        mw.fit_history.clear()
         mw.s2_verifications.clear()
         QMessageBox.information(self, "Done", f"Deleted {n} file(s), freed {size / 1024 / 1024:.1f} MB.")
 

@@ -100,6 +100,17 @@ def _export_plot(plot_widget, path):
         logger.warning(f"Plot export failed ({path}): {e}")
 
 
+def plot_image(plot_widget):
+    """Snapshot of a pyqtgraph plot as a QImage (None if it cannot be rendered)."""
+    try:
+        import pyqtgraph.exporters
+        img = pyqtgraph.exporters.ImageExporter(plot_widget.getPlotItem()).export(toBytes=True)
+        return img.copy() if img is not None else None
+    except Exception as e:
+        logger.warning(f"Plot snapshot failed: {e}")
+        return None
+
+
 def build_package(mw, note: str = "") -> str:
     """
     Collects everything the student produced (script, console, camera frames, calibration data and plots,
@@ -143,6 +154,17 @@ def build_package(mw, note: str = "") -> str:
             f.write(mw.lbl_fit_eq.text() + "\n")
         _export_plot(mw.plot_widget, os.path.join(work, "tracking_plot.png"))
 
+        # Every fit the students made (one per base B and model), each with its plot and equation
+        for i, fit in enumerate(getattr(mw, "fit_history", []), 1):
+            stem = f"fit_{i:02d}_B{fit['base_mm']:.0f}mm_{fit['type']}"
+            if fit.get("image") is not None:
+                fit["image"].save(os.path.join(work, stem + ".png"))
+            with open(os.path.join(work, stem + ".txt"), "w", encoding="utf-8") as f:
+                f.write(f"Time: {fit['time']}\nBase B: {fit['base_mm']:.1f} mm\nModel: {fit['type']}\n"
+                        f"Equation: {fit['equation']}\n\nAngle_deg;Px_X;Px_Y;Dist_mm\n")
+                for row in fit["points"]:
+                    f.write(";".join(row) + "\n")
+
         params = {
             "created": datetime.now().isoformat(timespec="seconds"),
             "note": note,
@@ -155,6 +177,9 @@ def build_package(mw, note: str = "") -> str:
             "pid": {"kp": mw.pid_worker.kp, "ki": mw.pid_worker.ki, "kd": mw.pid_worker.kd,
                     "target_x": mw.pid_worker.target_x, "rate_hz": mw.pid_worker.update_hz},
             "fit": mw.active_fit_type,
+            "fit_equation": mw.lbl_fit_eq.text(),
+            "fit_coefficients": [float(v) for v in mw.active_fit_popt] if mw.active_fit_popt is not None else None,
+            "fits_recorded": len(getattr(mw, "fit_history", [])),
         }
         with open(os.path.join(work, "parameters.json"), "w", encoding="utf-8") as f:
             json.dump(params, f, indent=2)
