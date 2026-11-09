@@ -19,6 +19,7 @@ class CameraDisplayWidget(QLabel):
         self.setStyleSheet("background-color: #121212; border: 1px solid #333; border-radius: 4px;")
         self._current_pixmap = None
         self._aspect = 640.0 / 966.0   # width/height of the shown image (stacked original + mask by default)
+        self._aspect_votes = 0
 
     def _fit_width(self):
         """Caps the widget width to the image's aspect ratio, so there are no side bars and the schematic gets the room."""
@@ -44,7 +45,15 @@ class CameraDisplayWidget(QLabel):
 
         self._current_pixmap = QPixmap.fromImage(qimg)
         if qimg.height() > 0:
-            self._aspect = qimg.width() / qimg.height()
+            # The widget width follows the image shape, but only when a new shape persists (about 1 s):
+            # a single odd frame (for example one picture instead of two) must not make the layout jump
+            new_aspect = qimg.width() / qimg.height()
+            if abs(new_aspect - self._aspect) < 0.01:
+                self._aspect_votes = 0
+            else:
+                self._aspect_votes += 1
+                if self._aspect_votes >= 20:
+                    self._aspect, self._aspect_votes = new_aspect, 0
         self._fit_width()
         self._update_display()
 

@@ -19,7 +19,18 @@ class ScriptRunner(QThread):
         self.code_text = code_text
         self.main_window = main_window
         self.running = False
-        
+        self.screen_pending = False
+        self._screen_sent = 0.0
+
+    def _emit_screen(self, img):
+        """Latest-wins: a picture is dropped when the GUI has not shown the previous one yet (no queue, no lag)."""
+        now = time.time()
+        if self.screen_pending and now - self._screen_sent < 0.5:
+            return
+        self.screen_pending = True
+        self._screen_sent = now
+        self.screen_signal.emit(img)
+
     def run(self):
         self.running = True
         
@@ -70,7 +81,7 @@ class ScriptRunner(QThread):
             if len(frames) == 1:
                 frame = frames[0]
                 if frame is not None:
-                    self.screen_signal.emit(frame.copy())
+                    self._emit_screen(frame.copy())
             else:
                 f1 = frames[0]
                 f2 = frames[1]
@@ -94,7 +105,7 @@ class ScriptRunner(QThread):
                     gap = np.zeros((6, f1.shape[1]), dtype=np.uint8)
                 # Stack vertically (one above the other) to maximize display size
                 stacked = np.vstack((f1, gap, f2))
-                self.screen_signal.emit(stacked)
+                self._emit_screen(stacked)
                 
         def set_servo_angle(angle):
             self.servo_signal.emit(float(angle))

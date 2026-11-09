@@ -225,7 +225,7 @@ class HardwareManager(QObject):
         max_p = getattr(config, 'SERVO_MAX_ANGLE', 130.0)
         physical_angle = max(min_p, min(max_p, physical_angle))
         
-        print(f"(SERVO_SET_POSITION) logical={angle:.2f}°, physical={physical_angle:.2f}°", flush=True)
+        logger.debug(f"servo set logical={angle:.2f}, physical={physical_angle:.2f}")
         
         if self.use_st3215 and self.st3215:
             try:

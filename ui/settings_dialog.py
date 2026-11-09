@@ -2,7 +2,7 @@ import math
 import subprocess
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QWidget, QMessageBox,
-    QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox, QStackedWidget, QSpinBox, QProgressBar
+    QComboBox, QDoubleSpinBox, QGroupBox, QPushButton, QCheckBox, QStackedWidget, QSpinBox, QProgressBar, QLineEdit
 )
 import numpy as np
 import pyqtgraph as pg
@@ -15,6 +15,7 @@ from core.demo_script import DEMO_SCRIPT, STARTER_TEMPLATE
 from core import results
 from core import profile_scan as ps
 from core import blocks as blocks_model
+from core import wifi
 
 
 def _note(text):
@@ -36,6 +37,7 @@ class SettingsDialog(QDialog):
         self.cal_worker = None
         self.tune_worker = None
         self.profile_worker = None
+        self.wifi_job = None
         self.profile_flat = None
         self.profile_wave = None
         self.profile_kind = "flat"
@@ -56,6 +58,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self.build_demo_tab(), "Demo")
         self.tabs.addTab(self.build_profile_tab(), "Profile")
         self.tabs.addTab(self.build_system_tab(), "System")
+        self.tabs.addTab(self.build_wifi_tab(), "Wi-Fi")
         layout.addWidget(self.tabs)
 
         btn_close = QPushButton("Close")
@@ -487,6 +490,119 @@ class SettingsDialog(QDialog):
         lay.addWidget(b)
         lay.addStretch(1)
         return page
+
+    # ---------- Wi-Fi ----------
+    def build_wifi_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        self.lbl_wifi_now = QLabel("Connected to: ...")
+        self.lbl_wifi_now.setStyleSheet("font-weight: bold;")
+        lay.addWidget(self.lbl_wifi_now)
+        lay.addWidget(_note("Add a network, for example a phone hotspot. It is remembered and used automatically "
+                            "when it is in range."))
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Network:"))
+        self.combo_wifi = QComboBox()
+        self.combo_wifi.setEditable(True)
+        row.addWidget(self.combo_wifi, 1)
+        self.btn_wifi_scan = QPushButton("Scan")
+        self.btn_wifi_scan.setObjectName("secondary")
+        self.btn_wifi_scan.clicked.connect(self.wifi_scan)
+        row.addWidget(self.btn_wifi_scan)
+        lay.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Password:"))
+        self.edit_wifi_pass = QLineEdit()
+        self.edit_wifi_pass.setEchoMode(QLineEdit.Password)
+        row.addWidget(self.edit_wifi_pass, 1)
+        chk = QCheckBox("Show")
+        chk.toggled.connect(lambda on: self.edit_wifi_pass.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
+        row.addWidget(chk)
+        lay.addLayout(row)
+        self.btn_wifi_connect = QPushButton("Connect and remember")
+        self.btn_wifi_connect.clicked.connect(self.wifi_connect)
+        lay.addWidget(self.btn_wifi_connect)
+        self.lbl_wifi_status = _note("")
+        lay.addWidget(self.lbl_wifi_status)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Saved:"))
+        self.combo_wifi_saved = QComboBox()
+        row.addWidget(self.combo_wifi_saved, 1)
+        b = QPushButton("Forget")
+        b.setObjectName("secondary")
+        b.clicked.connect(self.wifi_forget)
+        row.addWidget(b)
+        lay.addLayout(row)
+        lay.addWidget(_note("Connecting to another network ends the present connection. SSH and the download page "
+                            "then use the new address."))
+        lay.addStretch(1)
+        QTimer.singleShot(300, self.wifi_refresh)
+        return page
+
+    def _wifi_run(self, fn, *args, then=None):
+        if self.wifi_job and self.wifi_job.isRunning():
+            return
+        self.wifi_job = wifi.Job(fn, *args, parent=self)
+        if then:
+            self.wifi_job.done.connect(then)
+        self.wifi_job.start()
+
+    def wifi_refresh(self):
+        self._wifi_run(lambda: (wifi.current(), wifi.saved()), then=self._wifi_refreshed)
+
+    def _wifi_refreshed(self, res):
+        if isinstance(res, Exception):
+            self.lbl_wifi_now.setText("Wi-Fi control is not available on this system.")
+            return
+        now, saved = res
+        self.lbl_wifi_now.setText(f"Connected to: {now or 'nothing'}")
+        self.combo_wifi_saved.clear()
+        self.combo_wifi_saved.addItems(saved)
+
+    def wifi_scan(self):
+        self.btn_wifi_scan.setEnabled(False)
+        self.lbl_wifi_status.setText("Scanning...")
+        self._wifi_run(wifi.scan, then=self._wifi_scanned)
+
+    def _wifi_scanned(self, res):
+        self.btn_wifi_scan.setEnabled(True)
+        if isinstance(res, Exception):
+            self.lbl_wifi_status.setText("Scan failed.")
+            return
+        typed = self.combo_wifi.currentText()
+        self.combo_wifi.clear()
+        for ssid, signal, secured in res:
+            self.combo_wifi.addItem(ssid)
+        self.combo_wifi.setCurrentText(typed)
+        self.lbl_wifi_status.setText(f"{len(res)} network(s) found.")
+
+    def wifi_connect(self):
+        ssid = self.combo_wifi.currentText().strip()
+        if not ssid:
+            self.lbl_wifi_status.setText("Choose or type a network name.")
+            return
+        self.btn_wifi_connect.setEnabled(False)
+        self.lbl_wifi_status.setText(f"Connecting to {ssid}... (up to 30 s)")
+        self._wifi_run(wifi.connect, ssid, self.edit_wifi_pass.text(), then=self._wifi_connected)
+
+    def _wifi_connected(self, res):
+        self.btn_wifi_connect.setEnabled(True)
+        if isinstance(res, Exception):
+            self.lbl_wifi_status.setText(f"Error: {res}")
+            return
+        ok, msg = res
+        self.lbl_wifi_status.setText(msg)
+        if ok:
+            self.edit_wifi_pass.clear()
+        QTimer.singleShot(200, self.wifi_refresh)
+
+    def wifi_forget(self):
+        name = self.combo_wifi_saved.currentText()
+        if not name:
+            return
+        if QMessageBox.question(self, "Forget network", f"Forget '{name}'?") != QMessageBox.Yes:
+            return
+        self._wifi_run(wifi.forget, name, then=lambda _r: self.wifi_refresh())
 
     def build_calibration_tab(self):
         page = QWidget()

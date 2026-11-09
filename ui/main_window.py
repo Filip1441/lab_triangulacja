@@ -229,8 +229,8 @@ class MainWindow(QMainWindow):
         self.txt_code.textChanged.connect(self.on_code_changed)
         
         # Block editor (alternative to the code editor; the admin chooses which one the students see)
-        saved = self.settings.get('blocks_program')
-        self.block_editor = BlockEditor(blocks_model.from_dict(saved) if saved else blocks_model.new_program())
+        # The diagram always starts empty (like the code editor starts with the outline): students build it themselves
+        self.block_editor = BlockEditor(blocks_model.new_program())
         self.block_editor.changed.connect(self.on_blocks_changed)
         self.code_stack = QStackedWidget()
         self.code_stack.addWidget(self.txt_code)
@@ -260,6 +260,7 @@ class MainWindow(QMainWindow):
         self.txt_console = QTextEdit()
         self.txt_console.setReadOnly(True)
         self.txt_console.setFont(QFont("Courier", 9))
+        self.txt_console.document().setMaximumBlockCount(500)   # an endless print loop must not grow the console forever
         console_layout.addWidget(self.txt_console)
         
         self.console_group = console_group
@@ -682,6 +683,7 @@ class MainWindow(QMainWindow):
 
     @Slot(np.ndarray)
     def process_and_display_frame(self, frame: np.ndarray):
+        self.camera_worker.frame_consumed()
         self.current_raw_frame = frame
         self.new_frame_event.set()
         
@@ -754,7 +756,6 @@ class MainWindow(QMainWindow):
 
     def on_blocks_changed(self):
 
-        self.settings.set('blocks_program', self.block_editor.program)
         if self.chk_autorun.isChecked() and self.block_editor.has_content() and self.block_editor.is_valid():
             self.autorun_timer.start()
 
@@ -823,6 +824,8 @@ class MainWindow(QMainWindow):
         
     @Slot(np.ndarray)
     def update_script_screen(self, frame):
+        if self.script_runner:
+            self.script_runner.screen_pending = False
         self.camera_display.update_frame(frame)
         
     @Slot(float)

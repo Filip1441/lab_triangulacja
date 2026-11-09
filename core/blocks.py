@@ -237,7 +237,7 @@ def _gen(nodes, ind, out, any_show):
         if n.get("show"):
             var = _SHOW_VAR[n["t"]]
             line(f"if {var} is not None:")
-            line(f"    screen.append({var}.copy())")
+            line(f"    screen[{n['slot']}] = {var}.copy()")
 
     for n in nodes:
         t, p = n["t"], n["p"]
@@ -298,8 +298,9 @@ def _gen(nodes, ind, out, any_show):
             shown(n)
         elif t == "wait":
             if any_show:
-                line("if screen:")
-                line("    send_to_screen(*screen)")
+                line("if any(s is not None for s in screen):")
+                line("    ref = next(s for s in screen if s is not None)")
+                line("    send_to_screen(*[s if s is not None else np.zeros(ref.shape[:2], np.uint8) for s in screen])")
             line(f"time.sleep({max(int(p['ms']), 10) / 1000.0})")
 
 
@@ -310,13 +311,24 @@ def _gen_body(nodes, ind, out, any_show):
         out.append("    " * ind + "pass")
 
 
+def _assign_slots(nodes, counter):
+    """Each ticked block gets a fixed place on the screen, so a block that did not run (no spot) leaves a black picture."""
+    for n in nodes:
+        if n.get("show"):
+            n["slot"] = counter[0]
+            counter[0] += 1
+        _assign_slots(n.get("c", []), counter)
+        _assign_slots(n.get("e", []), counter)
+
+
 def generate_code(program):
     """Python text for the program (what ScriptRunner executes). Blocks ticked 'Screen' are sent to the screen."""
     any_show = count_shown(program["children"]) > 0
+    _assign_slots(program["children"], [0])
     out = ["import cv2", "import numpy as np", "import time", "",
            f"set_exposure_ms({float(program['exposure_ms'])})", "", "while True:"]
     if any_show:
-        out.append("    screen = []")
+        out.append(f"    screen = [None] * {count_shown(program['children'])}")
     _gen_body(program["children"], 1, out, any_show)
     return "\n".join(out) + "\n"
 

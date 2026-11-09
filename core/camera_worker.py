@@ -37,6 +37,8 @@ class CameraWorker(QThread):
         self._base_distance = config.DEFAULT_BASE_DISTANCE_MM
         self.paused = False
         self.last_frame = None
+        self._frame_pending = False
+        self._frame_sent = 0.0
         self.frame_counter = 0
         self.camera_fov = config.DEFAULT_FOV_DEG
 
@@ -54,6 +56,10 @@ class CameraWorker(QThread):
 
     def set_camera_fov(self, fov: float):
         self.camera_fov = fov
+
+    def frame_consumed(self):
+        """Called by the GUI when it has taken the frame from frame_ready."""
+        self._frame_pending = False
 
     def set_paused(self, paused: bool):
         self.paused = paused
@@ -247,7 +253,12 @@ class CameraWorker(QThread):
                 if frame is not None:
                     self.last_frame = frame
                     self.frame_counter += 1
-                    self.frame_ready.emit(frame)
+                    # One frame in flight: if the GUI is still busy with the previous one, skip this frame instead of
+                    # queueing it (queued frames pile up, eat memory and make the picture lag more and more)
+                    if not self._frame_pending or time.time() - self._frame_sent > 1.0:
+                        self._frame_pending = True
+                        self._frame_sent = time.time()
+                        self.frame_ready.emit(frame)
 
             # Sleep to match target FPS
             elapsed = time.time() - start_time
